@@ -51,7 +51,7 @@ jobs:
 
       - name: Validate briefing
         run: |
-          python cc-data/scripts/validate.py cc-data/processed/${{ steps.date.outputs.date }}/briefing.json
+          python cc-data/scripts/validate.py processed/${{ steps.date.outputs.date }}/briefing.json
 
       - name: Commit and push processed + archive data to cc-data
         working-directory: cc-data
