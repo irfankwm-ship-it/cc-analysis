@@ -41,13 +41,11 @@ jobs:
         run: |
           python -m analysis.cli run \
             --env prod \
+            --date ${{ steps.date.outputs.date }} \
             --raw-dir ./cc-data/raw/${{ steps.date.outputs.date }} \
-            --output-dir ./cc-data/processed/${{ steps.date.outputs.date }}
-
-      - name: Copy to archive
-        run: |
-          mkdir -p ./cc-data/archive/daily/${{ steps.date.outputs.date }}
-          cp -r ./cc-data/processed/${{ steps.date.outputs.date }}/* ./cc-data/archive/daily/${{ steps.date.outputs.date }}/
+            --output-dir ./cc-data/processed \
+            --archive-dir ./cc-data/archive \
+            --schemas-dir ./cc-data/schemas
 
       - name: Validate briefing
         run: |
@@ -69,3 +67,4 @@ jobs:
           token: ${{ secrets.CC_PAT }}
           repository: ${{ github.repository_owner }}/cc-site
           event-type: new-processed-data
+          client-payload: '{"date": "${{ steps.date.outputs.date }}"}'
