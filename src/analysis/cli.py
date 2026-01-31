@@ -296,13 +296,154 @@ def _load_raw_signals(raw_dir: str) -> list[dict[str, Any]]:
     return signals
 
 
+def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
+    """Transform raw yahoo_finance fetcher output to processed schema."""
+    indices = []
+    for idx in raw.get("indices", []):
+        change_pct = idx.get("change_pct", 0)
+        direction = "up" if change_pct >= 0 else "down"
+        change_str = f"{change_pct:+.2f}%"
+
+        # Convert sparkline array to SVG polyline points
+        sparkline = idx.get("sparkline", [])
+        sparkline_points = ""
+        if sparkline and len(sparkline) >= 2:
+            vals = [float(v) for v in sparkline]
+            mn, mx = min(vals), max(vals)
+            rng = mx - mn if mx != mn else 1
+            pts = []
+            for i, v in enumerate(vals):
+                x = (i / (len(vals) - 1)) * 100
+                y = 32 - ((v - mn) / rng) * 30
+                pts.append(f"{x:.0f},{y:.1f}")
+            sparkline_points = " ".join(pts)
+
+        indices.append({
+            "name": {"en": idx.get("name", ""), "zh": idx.get("name", "")},
+            "value": f"{idx.get('value', 0):,.2f}",
+            "change": change_str,
+            "direction": direction,
+            "sparkline_points": sparkline_points,
+        })
+
+    return {
+        "indices": indices,
+        "sectors": [],
+        "movers": {"gainers": [], "losers": []},
+        "ipos": [],
+    }
+
+
+def _transform_trade_data(raw: dict[str, Any]) -> dict[str, Any]:
+    """Transform raw statcan fetcher output to processed schema."""
+    imports_m = raw.get("imports_cad_millions", 0)
+    exports_m = raw.get("exports_cad_millions", 0)
+    balance_m = raw.get("balance_cad_millions", 0)
+
+    def _fmt_cad(val: float) -> dict[str, str]:
+        if abs(val) >= 1000:
+            return {
+                "en": f"${val / 1000:.1f}B CAD",
+                "zh": f"{val / 1000:.1f}0亿加元",
+            }
+        return {
+            "en": f"${val:,.0f}M CAD",
+            "zh": f"{val:,.0f}百万加元",
+        }
+
+    balance_dir = "down" if balance_m < 0 else "up"
+
+    summary_stats = [
+        {
+            "label": {"en": "Total Imports from China", "zh": "从中国进口总额"},
+            "value": _fmt_cad(imports_m),
+        },
+        {
+            "label": {"en": "Total Exports to China", "zh": "对中国出口总额"},
+            "value": _fmt_cad(exports_m),
+        },
+        {
+            "label": {"en": "Trade Balance", "zh": "贸易差额"},
+            "value": _fmt_cad(balance_m),
+            "direction": balance_dir,
+        },
+    ]
+
+    # Pass through commodities if present
+    commodities = raw.get("commodities", [])
+
+    return {
+        "summary_stats": summary_stats,
+        "commodities": commodities,
+        "totals": raw.get("totals", {}),
+    }
+
+
+def _transform_parliament_data(raw: dict[str, Any]) -> dict[str, Any]:
+    """Transform raw parliament fetcher output to processed schema."""
+    # Transform bills to bilingual format
+    bills = []
+    for b in raw.get("bills", []):
+        title_en = b.get("title", "")
+        title_zh = b.get("title_fr", title_en)
+        status = b.get("status", "")
+        # Map status codes to display strings
+        status_map = {
+            "RoyalAssentGiven": {"en": "Royal Assent", "zh": "御准"},
+            "HouseInCommittee": {"en": "In Committee", "zh": "委员会审议中"},
+            "HouseAt2ndReading": {
+                "en": "2nd Reading", "zh": "二读",
+            },
+            "SenateInCommittee": {
+                "en": "Senate Committee", "zh": "参议院委员会",
+            },
+        }
+        status_display = status_map.get(
+            status, {"en": status, "zh": status},
+        )
+        bills.append({
+            "id": b.get("id", ""),
+            "title": {"en": title_en, "zh": title_zh},
+            "status": status_display,
+            "relevance": {"en": "", "zh": ""},
+            "last_action": {"en": "", "zh": ""},
+        })
+
+    # Transform hansard_stats to hansard
+    hs = raw.get("hansard_stats", {})
+    total = hs.get("total_mentions", 0)
+    by_kw = hs.get("by_keyword", {})
+
+    # Find top keyword
+    top_kw = ""
+    top_count = 0
+    for kw, count in by_kw.items():
+        if count > top_count:
+            top_kw = kw
+            top_count = count
+
+    top_pct = (
+        f"{top_count / total * 100:.0f}%" if total > 0 else "0%"
+    )
+    top_topic = (
+        {"en": top_kw, "zh": top_kw} if top_kw
+        else {"en": "N/A", "zh": "N/A"}
+    )
+
+    hansard = {
+        "session_mentions": total,
+        "month_mentions": total,
+        "top_topic": top_topic,
+        "top_topic_pct": top_pct,
+    }
+
+    return {"bills": bills, "hansard": hansard}
+
+
 def _load_supplementary_data(raw_dir: str) -> dict[str, Any]:
     """Load supplementary data (trade, market, parliament) from raw files.
 
-    Raw fetcher output is in a different shape than the processed schema.
-    This function only loads data that already conforms to the processed
-    schema (i.e., has the required top-level keys). Raw data that doesn't
-    match is skipped so the analysis defaults take over.
+    Transforms raw fetcher output into the processed schema format.
 
     Args:
         raw_dir: Path to the raw data directory.
@@ -317,11 +458,10 @@ def _load_supplementary_data(raw_dir: str) -> dict[str, Any]:
         "parliament": None,
     }
 
-    # Required keys that distinguish processed-format data from raw-format data
-    required_keys: dict[str, set[str]] = {
-        "trade_data": {"summary_stats", "commodities"},
-        "market_data": {"indices", "sectors", "movers", "ipos"},
-        "parliament": {"bills", "hansard"},
+    transformers: dict[str, Any] = {
+        "trade_data": _transform_trade_data,
+        "market_data": _transform_market_data,
+        "parliament": _transform_parliament_data,
     }
 
     file_mapping = {
@@ -333,34 +473,34 @@ def _load_supplementary_data(raw_dir: str) -> dict[str, Any]:
     }
 
     for filename, key in file_mapping.items():
+        if result[key] is not None:
+            continue
         file_path = raw_path / filename
-        if file_path.exists():
-            try:
-                with open(file_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                # Handle fetcher envelope
-                if isinstance(data, dict) and "data" in data:
-                    payload = data["data"]
-                else:
-                    payload = data
-                # Skip payloads that indicate a fetch error
-                if isinstance(payload, dict) and "error" in payload:
-                    logger.warning("Skipping %s (error: %s)", filename, payload["error"])
-                    continue
-                # Only use data that has the required processed-schema keys
-                if isinstance(payload, dict) and required_keys[key].issubset(payload.keys()):
-                    result[key] = payload
-                else:
-                    if isinstance(payload, dict):
-                        missing = required_keys[key] - set(payload.keys())
-                    else:
-                        missing = required_keys[key]
-                    logger.info(
-                        "Skipping %s (raw format, missing: %s); using defaults",
-                        filename, ", ".join(sorted(missing)),
-                    )
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.warning("Failed to load %s: %s", file_path, exc)
+        if not file_path.exists():
+            continue
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                data = json.load(f)
+            # Handle fetcher envelope
+            if isinstance(data, dict) and "data" in data:
+                payload = data["data"]
+            else:
+                payload = data
+            # Skip payloads that indicate a fetch error
+            if isinstance(payload, dict) and "error" in payload:
+                logger.warning(
+                    "Skipping %s (error: %s)",
+                    filename, payload["error"],
+                )
+                continue
+            if not isinstance(payload, dict):
+                logger.warning("Skipping %s (unexpected format)", filename)
+                continue
+            # Transform raw data to processed schema
+            result[key] = transformers[key](payload)
+            logger.info("Loaded and transformed %s", filename)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to load %s: %s", file_path, exc)
 
     return result
 
