@@ -58,35 +58,43 @@ def _to_bilingual(value: Any) -> dict[str, str]:
 
 _IMPACT_TEMPLATES: dict[str, dict[str, str]] = {
     "diplomatic": {
-        "en": "May affect bilateral diplomatic relations and consular activity between Canada and China.",
+        "en": ("May affect bilateral diplomatic relations and "
+               "consular activity between Canada and China."),
         "zh": "可能影响加中双边外交关系和领事活动。",
     },
     "trade": {
-        "en": "Could influence Canada-China trade flows, tariffs, or market access for Canadian exporters.",
+        "en": ("Could influence Canada-China trade flows, tariffs, "
+               "or market access for Canadian exporters."),
         "zh": "可能影响加中贸易往来、关税或加拿大出口商的市场准入。",
     },
     "military": {
-        "en": "Relevant to regional security dynamics and Canada's Indo-Pacific defence posture.",
+        "en": ("Relevant to regional security dynamics and "
+               "Canada's Indo-Pacific defence posture."),
         "zh": "与区域安全态势和加拿大印太防务战略相关。",
     },
     "technology": {
-        "en": "May impact technology transfer policies, research collaboration, or supply chain security.",
+        "en": ("May impact technology transfer policies, research "
+               "collaboration, or supply chain security."),
         "zh": "可能影响技术转让政策、科研合作或供应链安全。",
     },
     "political": {
-        "en": "Could shape domestic political debate on Canada's China policy.",
+        "en": ("Could shape domestic political debate on "
+               "Canada's China policy."),
         "zh": "可能影响加拿大国内关于对华政策的政治讨论。",
     },
     "economic": {
-        "en": "May affect economic conditions relevant to Canadian businesses operating in or with China.",
+        "en": ("May affect economic conditions relevant to Canadian "
+               "businesses operating in or with China."),
         "zh": "可能影响与在华或对华经营的加拿大企业相关的经济环境。",
     },
     "social": {
-        "en": "Relevant to diaspora communities, academic exchanges, or public opinion on Canada-China ties.",
+        "en": ("Relevant to diaspora communities, academic exchanges, "
+               "or public opinion on Canada-China ties."),
         "zh": "与侨民社区、学术交流或加中关系舆论相关。",
     },
     "legal": {
-        "en": "May affect regulatory frameworks, sanctions compliance, or rule-of-law considerations.",
+        "en": ("May affect regulatory frameworks, sanctions compliance, "
+               "or rule-of-law considerations."),
         "zh": "可能影响监管框架、制裁合规或法治相关议题。",
     },
 }
@@ -94,14 +102,22 @@ _IMPACT_TEMPLATES: dict[str, dict[str, str]] = {
 _WATCH_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
     "critical": {
         "en": {
-            "diplomatic": "Watch for emergency diplomatic recalls, sanctions, or retaliatory measures.",
-            "trade": "Watch for immediate trade disruptions, emergency tariffs, or export bans.",
-            "military": "Watch for escalation signals, military mobilization, or allied coordination.",
-            "technology": "Watch for technology blacklists, emergency export controls, or cyber incidents.",
-            "political": "Watch for parliamentary emergency debates or executive policy shifts.",
-            "economic": "Watch for capital flight, currency intervention, or investment restrictions.",
-            "social": "Watch for travel advisories, evacuation notices, or community safety alerts.",
-            "legal": "Watch for sanctions designations, asset freezes, or extradition developments.",
+            "diplomatic": ("Watch for emergency diplomatic recalls, "
+                           "sanctions, or retaliatory measures."),
+            "trade": ("Watch for immediate trade disruptions, "
+                      "emergency tariffs, or export bans."),
+            "military": ("Watch for escalation signals, military "
+                         "mobilization, or allied coordination."),
+            "technology": ("Watch for technology blacklists, "
+                           "emergency export controls, or cyber incidents."),
+            "political": ("Watch for parliamentary emergency debates "
+                          "or executive policy shifts."),
+            "economic": ("Watch for capital flight, currency "
+                         "intervention, or investment restrictions."),
+            "social": ("Watch for travel advisories, evacuation "
+                       "notices, or community safety alerts."),
+            "legal": ("Watch for sanctions designations, asset "
+                      "freezes, or extradition developments."),
         },
         "zh": {
             "diplomatic": "关注紧急外交召回、制裁或报复措施。",
@@ -116,14 +132,22 @@ _WATCH_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
     },
     "high": {
         "en": {
-            "diplomatic": "Watch for formal protests, ambassador statements, or coalition responses.",
-            "trade": "Watch for new tariff announcements, trade investigation launches, or supply chain shifts.",
-            "military": "Watch for military exercises, defence pact discussions, or arms sales decisions.",
-            "technology": "Watch for entity list additions, research partnership reviews, or data security rules.",
-            "political": "Watch for committee hearings, caucus positions, or opposition policy proposals.",
-            "economic": "Watch for investment screening decisions, state enterprise activity, or credit actions.",
-            "social": "Watch for university partnership reviews, visa policy changes, or diaspora reactions.",
-            "legal": "Watch for new legislation, court rulings, or regulatory enforcement actions.",
+            "diplomatic": ("Watch for formal protests, ambassador "
+                           "statements, or coalition responses."),
+            "trade": ("Watch for new tariff announcements, trade "
+                      "investigation launches, or supply chain shifts."),
+            "military": ("Watch for military exercises, defence pact "
+                         "discussions, or arms sales decisions."),
+            "technology": ("Watch for entity list additions, research "
+                           "partnership reviews, or data security rules."),
+            "political": ("Watch for committee hearings, caucus "
+                          "positions, or opposition policy proposals."),
+            "economic": ("Watch for investment screening decisions, "
+                         "state enterprise activity, or credit actions."),
+            "social": ("Watch for university partnership reviews, "
+                       "visa policy changes, or diaspora reactions."),
+            "legal": ("Watch for new legislation, court rulings, "
+                      "or regulatory enforcement actions."),
         },
         "zh": {
             "diplomatic": "关注正式抗议、大使声明或联盟回应。",
@@ -139,12 +163,12 @@ _WATCH_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
     "default": {
         "en": {
             "diplomatic": "Monitor for follow-up statements or policy adjustments.",
-            "trade": "Monitor for trade data releases or business community reactions.",
-            "military": "Monitor for regional security developments or defence commentary.",
-            "technology": "Monitor for industry responses or regulatory guidance updates.",
-            "political": "Monitor for parliamentary questions or media coverage trends.",
-            "economic": "Monitor for market reactions or economic indicator releases.",
-            "social": "Monitor for community responses or institutional announcements.",
+            "trade": "Monitor for trade data releases or business reactions.",
+            "military": "Monitor for regional security developments or commentary.",
+            "technology": "Monitor for industry responses or regulatory updates.",
+            "political": "Monitor for parliamentary questions or media trends.",
+            "economic": "Monitor for market reactions or indicator releases.",
+            "social": "Monitor for community responses or announcements.",
             "legal": "Monitor for regulatory updates or compliance guidance.",
         },
         "zh": {
@@ -327,7 +351,10 @@ def _load_supplementary_data(raw_dir: str) -> dict[str, Any]:
                 if isinstance(payload, dict) and required_keys[key].issubset(payload.keys()):
                     result[key] = payload
                 else:
-                    missing = required_keys[key] - set(payload.keys()) if isinstance(payload, dict) else required_keys[key]
+                    if isinstance(payload, dict):
+                        missing = required_keys[key] - set(payload.keys())
+                    else:
+                        missing = required_keys[key]
                     logger.info(
                         "Skipping %s (raw format, missing: %s); using defaults",
                         filename, ", ".join(sorted(missing)),
