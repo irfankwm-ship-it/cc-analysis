@@ -362,6 +362,99 @@ def _determine_volume_number(archive_dir: str) -> int:
     return max_vol + 1
 
 
+def _generate_todays_number(
+    supplementary: dict[str, Any],
+    signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Generate today's number from trade data or signal counts."""
+    trade = supplementary.get("trade_data")
+    if trade and isinstance(trade, dict):
+        totals = trade.get("totals") or trade.get("summary_stats") or {}
+        imports_val = totals.get("total_imports_cad")
+        exports_val = totals.get("total_exports_cad")
+        if imports_val and exports_val:
+            total = imports_val + exports_val
+            if total >= 1000:
+                display = f"${total / 1000:.1f}B"
+                display_zh = f"{total / 1000:.1f}0亿加元"
+            else:
+                display = f"${total:.0f}M"
+                display_zh = f"{total:.0f}百万加元"
+            return {
+                "value": {"en": display, "zh": display_zh},
+                "description": {
+                    "en": "Canada-China monthly bilateral trade volume",
+                    "zh": "加中月度双边贸易总额",
+                },
+            }
+
+    # Fallback: use signal count
+    count = len(signals)
+    return {
+        "value": {"en": str(count), "zh": str(count)},
+        "description": {
+            "en": "Canada-China signals tracked today",
+            "zh": "今日追踪的加中信号数",
+        },
+    }
+
+
+def _generate_quote(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pick the highest-severity signal's title as the quote."""
+    severity_rank = {"critical": 0, "high": 1, "elevated": 2, "moderate": 3, "low": 4}
+    # Prefer official sources for the quote
+    source_rank = {"Global Affairs Canada": 0, "Parliament of Canada": 1}
+
+    best = None
+    best_score = (5, 5)  # (severity_rank, source_rank) — lower is better
+
+    for s in signals:
+        sev = severity_rank.get(s.get("severity", "low"), 4)
+        src_name = s.get("source", "")
+        if isinstance(src_name, dict):
+            src_name = src_name.get("en", "")
+        src = source_rank.get(src_name, 3)
+        score = (sev, src)
+        if score < best_score:
+            best_score = score
+            best = s
+
+    if best:
+        title = best.get("title", {})
+        if isinstance(title, dict):
+            en_title = title.get("en", "")
+            zh_title = title.get("zh", en_title)
+        else:
+            en_title = str(title)
+            zh_title = en_title
+
+        source = best.get("source", {})
+        if isinstance(source, dict):
+            en_source = source.get("en", "")
+            zh_source = source.get("zh", en_source)
+        else:
+            en_source = str(source)
+            zh_source = en_source
+
+        date_str = best.get("date", "")
+
+        return {
+            "text": {
+                "en": f"\u201c{en_title}\u201d",
+                "zh": f"\u201c{zh_title}\u201d",
+            },
+            "attribution": {
+                "en": f"\u2014 {en_source}, {date_str}" if date_str else f"\u2014 {en_source}",
+                "zh": f"\u2014 {zh_source}，{date_str}" if date_str else f"\u2014 {zh_source}",
+            },
+        }
+
+    return {
+        "text": {"en": "", "zh": ""},
+        "attribution": {"en": "", "zh": ""},
+    }
+
+
 @click.group()
 @click.version_option(version=__version__)
 def main() -> None:
@@ -495,6 +588,10 @@ def run(
     # Step 7: Determine volume number
     volume_number = _determine_volume_number(resolved_archive)
 
+    # Step 7b: Generate today's number and quote
+    todays_number = _generate_todays_number(supplementary, classified_signals)
+    quote = _generate_quote(classified_signals)
+
     # Step 8: Assemble briefing
     logger.info("Assembling briefing (volume %d)...", volume_number)
     briefing = assemble_briefing(
@@ -507,6 +604,8 @@ def run(
         parliament=supplementary.get("parliament"),
         entities=entity_directory,
         active_situations=[s.to_dict() for s in situations],
+        todays_number=todays_number,
+        quote_of_the_day=quote,
     )
 
     # Step 9: Validate
