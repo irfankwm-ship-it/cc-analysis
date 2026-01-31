@@ -68,3 +68,11 @@ jobs:
           repository: ${{ github.repository_owner }}/cc-site
           event-type: new-processed-data
           client-payload: '{"date": "${{ steps.date.outputs.date }}"}'
+
+      - name: Dispatch cc-newsletter workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CC_PAT }}
+          repository: ${{ github.repository_owner }}/cc-newsletter
+          event-type: new-processed-data
+          client-payload: '{"date": "${{ steps.date.outputs.date }}"}'
