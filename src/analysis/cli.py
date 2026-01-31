@@ -56,11 +56,131 @@ def _to_bilingual(value: Any) -> dict[str, str]:
     return {"en": text, "zh": text}
 
 
+_IMPACT_TEMPLATES: dict[str, dict[str, str]] = {
+    "diplomatic": {
+        "en": "May affect bilateral diplomatic relations and consular activity between Canada and China.",
+        "zh": "可能影响加中双边外交关系和领事活动。",
+    },
+    "trade": {
+        "en": "Could influence Canada-China trade flows, tariffs, or market access for Canadian exporters.",
+        "zh": "可能影响加中贸易往来、关税或加拿大出口商的市场准入。",
+    },
+    "military": {
+        "en": "Relevant to regional security dynamics and Canada's Indo-Pacific defence posture.",
+        "zh": "与区域安全态势和加拿大印太防务战略相关。",
+    },
+    "technology": {
+        "en": "May impact technology transfer policies, research collaboration, or supply chain security.",
+        "zh": "可能影响技术转让政策、科研合作或供应链安全。",
+    },
+    "political": {
+        "en": "Could shape domestic political debate on Canada's China policy.",
+        "zh": "可能影响加拿大国内关于对华政策的政治讨论。",
+    },
+    "economic": {
+        "en": "May affect economic conditions relevant to Canadian businesses operating in or with China.",
+        "zh": "可能影响与在华或对华经营的加拿大企业相关的经济环境。",
+    },
+    "social": {
+        "en": "Relevant to diaspora communities, academic exchanges, or public opinion on Canada-China ties.",
+        "zh": "与侨民社区、学术交流或加中关系舆论相关。",
+    },
+    "legal": {
+        "en": "May affect regulatory frameworks, sanctions compliance, or rule-of-law considerations.",
+        "zh": "可能影响监管框架、制裁合规或法治相关议题。",
+    },
+}
+
+_WATCH_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {
+    "critical": {
+        "en": {
+            "diplomatic": "Watch for emergency diplomatic recalls, sanctions, or retaliatory measures.",
+            "trade": "Watch for immediate trade disruptions, emergency tariffs, or export bans.",
+            "military": "Watch for escalation signals, military mobilization, or allied coordination.",
+            "technology": "Watch for technology blacklists, emergency export controls, or cyber incidents.",
+            "political": "Watch for parliamentary emergency debates or executive policy shifts.",
+            "economic": "Watch for capital flight, currency intervention, or investment restrictions.",
+            "social": "Watch for travel advisories, evacuation notices, or community safety alerts.",
+            "legal": "Watch for sanctions designations, asset freezes, or extradition developments.",
+        },
+        "zh": {
+            "diplomatic": "关注紧急外交召回、制裁或报复措施。",
+            "trade": "关注即时贸易中断、紧急关税或出口禁令。",
+            "military": "关注局势升级信号、军事调动或盟友协调。",
+            "technology": "关注技术黑名单、紧急出口管制或网络安全事件。",
+            "political": "关注议会紧急辩论或行政政策转变。",
+            "economic": "关注资本外流、汇率干预或投资限制。",
+            "social": "关注旅行警告、撤离通知或社区安全提醒。",
+            "legal": "关注制裁认定、资产冻结或引渡动态。",
+        },
+    },
+    "high": {
+        "en": {
+            "diplomatic": "Watch for formal protests, ambassador statements, or coalition responses.",
+            "trade": "Watch for new tariff announcements, trade investigation launches, or supply chain shifts.",
+            "military": "Watch for military exercises, defence pact discussions, or arms sales decisions.",
+            "technology": "Watch for entity list additions, research partnership reviews, or data security rules.",
+            "political": "Watch for committee hearings, caucus positions, or opposition policy proposals.",
+            "economic": "Watch for investment screening decisions, state enterprise activity, or credit actions.",
+            "social": "Watch for university partnership reviews, visa policy changes, or diaspora reactions.",
+            "legal": "Watch for new legislation, court rulings, or regulatory enforcement actions.",
+        },
+        "zh": {
+            "diplomatic": "关注正式抗议、大使声明或联盟回应。",
+            "trade": "关注新关税公告、贸易调查启动或供应链调整。",
+            "military": "关注军事演习、防务协议讨论或武器销售决策。",
+            "technology": "关注实体清单增补、科研合作审查或数据安全规定。",
+            "political": "关注委员会听证、党团立场或反对党政策提案。",
+            "economic": "关注投资审查决定、国有企业动态或信贷行动。",
+            "social": "关注大学合作审查、签证政策变化或侨民反应。",
+            "legal": "关注新立法、法院裁决或监管执法行动。",
+        },
+    },
+    "default": {
+        "en": {
+            "diplomatic": "Monitor for follow-up statements or policy adjustments.",
+            "trade": "Monitor for trade data releases or business community reactions.",
+            "military": "Monitor for regional security developments or defence commentary.",
+            "technology": "Monitor for industry responses or regulatory guidance updates.",
+            "political": "Monitor for parliamentary questions or media coverage trends.",
+            "economic": "Monitor for market reactions or economic indicator releases.",
+            "social": "Monitor for community responses or institutional announcements.",
+            "legal": "Monitor for regulatory updates or compliance guidance.",
+        },
+        "zh": {
+            "diplomatic": "跟踪后续声明或政策调整。",
+            "trade": "跟踪贸易数据发布或商界反应。",
+            "military": "跟踪区域安全动态或防务评论。",
+            "technology": "跟踪行业反应或监管指导更新。",
+            "political": "跟踪议会质询或媒体报道趋势。",
+            "economic": "跟踪市场反应或经济指标发布。",
+            "social": "跟踪社区反应或机构公告。",
+            "legal": "跟踪监管动态或合规指导。",
+        },
+    },
+}
+
+
+def _generate_implications(category: str, severity: str) -> dict[str, Any]:
+    """Generate rule-based implications from category and severity."""
+    impact = _IMPACT_TEMPLATES.get(category, _IMPACT_TEMPLATES["diplomatic"])
+
+    severity_key = severity if severity in ("critical", "high") else "default"
+    watch_tier = _WATCH_TEMPLATES.get(severity_key, _WATCH_TEMPLATES["default"])
+    watch_en = watch_tier["en"].get(category, watch_tier["en"]["diplomatic"])
+    watch_zh = watch_tier["zh"].get(category, watch_tier["zh"]["diplomatic"])
+
+    return {
+        "canada_impact": impact,
+        "what_to_watch": {"en": watch_en, "zh": watch_zh},
+    }
+
+
 def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """Normalize a classified signal to conform to the processed schema.
 
-    Converts plain string fields to bilingual format and adds
-    default values for any missing required fields.
+    Converts plain string fields to bilingual format and generates
+    rule-based implications from category + severity.
     """
     s = dict(signal)
 
@@ -75,19 +195,28 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     if "date" not in s:
         s["date"] = ""
 
-    # Implications: add default if missing
+    # Implications: generate from category + severity if missing
     if "implications" not in s or not isinstance(s["implications"], dict):
-        s["implications"] = {
-            "canada_impact": {"en": "Assessment pending.", "zh": "评估进行中。"},
-            "what_to_watch": {"en": "Monitoring.", "zh": "持续关注。"},
-        }
+        s["implications"] = _generate_implications(
+            s.get("category", "diplomatic"),
+            s.get("severity", "moderate"),
+        )
     else:
         imp = s["implications"]
         if "canada_impact" not in imp:
-            imp["canada_impact"] = {"en": "Assessment pending.", "zh": "评估进行中。"}
+            imp["canada_impact"] = _IMPACT_TEMPLATES.get(
+                s.get("category", "diplomatic"),
+                _IMPACT_TEMPLATES["diplomatic"],
+            )
         else:
             imp["canada_impact"] = _to_bilingual(imp["canada_impact"])
-        if "what_to_watch" in imp:
+        if "what_to_watch" not in imp or not imp["what_to_watch"]:
+            generated = _generate_implications(
+                s.get("category", "diplomatic"),
+                s.get("severity", "moderate"),
+            )
+            imp["what_to_watch"] = generated["what_to_watch"]
+        else:
             imp["what_to_watch"] = _to_bilingual(imp["what_to_watch"])
 
     return s
