@@ -1,0 +1,102 @@
+xi_jinping:
+  en:
+    - Xi Jinping
+    - Xi
+    - President Xi
+    - General Secretary Xi
+  zh:
+    - "\u4E60\u8FD1\u5E73"
+    - "\u4E60\u4E3B\u5E2D"
+    - "\u4E60\u603B\u4E66\u8BB0"
+
+mofcom:
+  en:
+    - MOFCOM
+    - Ministry of Commerce
+  zh:
+    - "\u5546\u52A1\u90E8"
+
+canola:
+  en:
+    - canola
+    - canola seed
+    - oilseed
+  zh:
+    - "\u6CB9\u83DC\u7C7D"
+    - "\u83DC\u7C7D"
+
+huawei:
+  en:
+    - Huawei
+    - HW
+  zh:
+    - "\u534E\u4E3A"
+
+mfa:
+  en:
+    - MFA
+    - Ministry of Foreign Affairs
+  zh:
+    - "\u5916\u4EA4\u90E8"
+
+wang_yi:
+  en:
+    - Wang Yi
+  zh:
+    - "\u738B\u6BC5"
+
+rare_earths:
+  en:
+    - rare earth
+    - rare earths
+    - gallium
+    - germanium
+    - critical minerals
+  zh:
+    - "\u7A00\u571F"
+    - "\u9553"
+    - "\u9574"
+    - "\u5173\u952E\u77FF\u4EA7"
+
+csis:
+  en:
+    - CSIS
+    - Canadian Security Intelligence Service
+  zh:
+    - "\u52A0\u62FF\u5927\u5B89\u5168\u60C5\u62A5\u5C40"
+
+ufwd:
+  en:
+    - United Front
+    - UFWD
+    - United Front Work Department
+  zh:
+    - "\u7EDF\u6218\u90E8"
+    - "\u7EDF\u4E00\u6218\u7EBF"
+
+softwood_lumber:
+  en:
+    - softwood lumber
+    - lumber
+    - timber
+  zh:
+    - "\u8F6F\u6728\u6728\u6750"
+    - "\u6728\u6750"
+
+mss:
+  en:
+    - MSS
+    - Ministry of State Security
+  zh:
+    - "\u56FD\u5B89\u90E8"
+    - "\u56FD\u5BB6\u5B89\u5168\u90E8"
+
+two_michaels:
+  en:
+    - Two Michaels
+    - Michael Kovrig
+    - Michael Spavor
+  zh:
+    - "\u4E24\u4E2A\u8FC8\u514B\u5C14"
+    - "\u5EB7\u660E\u51EF"
+    - "\u8FC8\u514B\u5C14\u00B7\u65AF\u5E15\u5F17"

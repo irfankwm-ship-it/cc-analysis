@@ -1,0 +1,76 @@
+escalation:
+  en:
+    - detention
+    - detained
+    - arrested
+    - sanctions
+    - sanctioned
+    - military confrontation
+    - ban
+    - banned
+    - suspended
+    - expelled
+    - severed
+    - ultimatum
+    - crisis
+    - emergency
+    - war
+  zh:
+    - "\u62D8\u7559"
+    - "\u902E\u6355"
+    - "\u5236\u88C1"
+    - "\u519B\u4E8B\u5BF9\u5CE1"
+    - "\u7981\u4EE4"
+    - "\u6682\u505C"
+    - "\u9A71\u9010"
+    - "\u65AD\u4EA4"
+    - "\u6700\u540E\u901A\u7258"
+    - "\u5371\u673A"
+    - "\u7D27\u6025"
+    - "\u6218\u4E89"
+  weight: 3
+
+moderate_escalation:
+  en:
+    - tariff
+    - restriction
+    - investigation
+    - probe
+    - review
+    - warning
+    - concern
+    - threat
+    - dispute
+    - tension
+  zh:
+    - "\u5173\u7A0E"
+    - "\u9650\u5236"
+    - "\u8C03\u67E5"
+    - "\u5BA1\u67E5"
+    - "\u8B66\u544A"
+    - "\u62C5\u5FE7"
+    - "\u5A01\u80C1"
+    - "\u4E89\u7AEF"
+    - "\u7D27\u5F20"
+  weight: 2
+
+de_escalation:
+  en:
+    - agreement
+    - cooperation
+    - dialogue
+    - resumption
+    - normalized
+    - eased
+    - lifted
+    - resolved
+  zh:
+    - "\u534F\u8BAE"
+    - "\u5408\u4F5C"
+    - "\u5BF9\u8BDD"
+    - "\u6062\u590D"
+    - "\u6B63\u5E38\u5316"
+    - "\u7F13\u548C"
+    - "\u89E3\u9664"
+    - "\u89E3\u51B3"
+  weight: -2

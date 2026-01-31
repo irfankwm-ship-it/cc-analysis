@@ -1,0 +1,71 @@
+name: Analyze Data
+
+on:
+  repository_dispatch:
+    types: [new-raw-data]
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout cc-analysis
+        uses: actions/checkout@v4
+
+      - name: Checkout cc-data
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/cc-data
+          path: cc-data
+          token: ${{ secrets.CC_PAT }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml click jsonschema
+
+      - name: Determine date
+        id: date
+        run: |
+          if [ -n "${{ github.event.client_payload.date }}" ]; then
+            echo "date=${{ github.event.client_payload.date }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run analysis
+        run: |
+          python -m analysis.cli run \
+            --env prod \
+            --raw-dir ./cc-data/raw/${{ steps.date.outputs.date }} \
+            --output-dir ./cc-data/processed/${{ steps.date.outputs.date }}
+
+      - name: Copy to archive
+        run: |
+          mkdir -p ./cc-data/archive/daily/${{ steps.date.outputs.date }}
+          cp -r ./cc-data/processed/${{ steps.date.outputs.date }}/* ./cc-data/archive/daily/${{ steps.date.outputs.date }}/
+
+      - name: Validate briefing
+        run: |
+          python cc-data/scripts/validate.py cc-data/processed/${{ steps.date.outputs.date }}/briefing.json
+
+      - name: Commit and push processed + archive data to cc-data
+        working-directory: cc-data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add processed/ archive/
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Add processed data and archive for ${{ steps.date.outputs.date }}"
+          git push
+
+      - name: Dispatch cc-site workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CC_PAT }}
+          repository: ${{ github.repository_owner }}/cc-site
+          event-type: new-processed-data

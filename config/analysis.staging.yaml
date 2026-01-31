@@ -1,0 +1,20 @@
+# cc-analysis staging configuration
+env: staging
+
+paths:
+  raw_dir: ../cc-data/raw
+  processed_dir: ../cc-data/processed
+  archive_dir: ../cc-data/archive
+  schemas_dir: ../cc-data/schemas
+
+tension_index:
+  window_days: 30
+  cap_denominator: 20
+
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+validation:
+  strict: true
+  schema_file: briefing.schema.json
