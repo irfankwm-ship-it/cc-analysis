@@ -201,50 +201,110 @@ def _generate_implications(category: str, severity: str) -> dict[str, Any]:
     }
 
 
-def _clean_body_to_sentences(text: str, max_chars: int = 400) -> str:
-    """Truncate text at the last complete sentence within max_chars.
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences using punctuation boundaries."""
+    text = re.sub(r"\s+", " ", text).strip()
+    # Split on sentence-ending punctuation followed by space + uppercase
+    raw = re.split(r'(?<=[.!?])\s+(?=[A-Z\u201c\u2018\"\'(])', text)
+    return [s.strip() for s in raw if s.strip() and len(s.strip()) > 15]
 
-    Splits on sentence-ending punctuation (. ! ?) followed by whitespace
-    or end-of-string, keeping as many complete sentences as fit.
-    Returns at least the first sentence even if it exceeds max_chars.
+
+# Keywords that signal informative content (not background / filler)
+_INFO_KEYWORDS = [
+    "announced", "said", "according", "revealed", "confirmed",
+    "launched", "signed", "agreed", "imposed", "banned", "approved",
+    "plans to", "will ", "expected", "reported",
+    "billion", "million", "percent", "%",
+    "first", "new ", "biggest", "largest", "record",
+]
+
+
+def _score_sentence(sentence: str, title: str, position: int, total: int) -> float:
+    """Score a sentence for informativeness.
+
+    Factors: keyword density, title overlap, named entities / numbers,
+    position (first and last sentences get a boost).
+    """
+    s_lower = sentence.lower()
+    t_lower = title.lower()
+    score = 0.0
+
+    # Information keywords
+    for kw in _INFO_KEYWORDS:
+        if kw in s_lower:
+            score += 1.0
+
+    # Numbers / data points (e.g. $3.7 million, 30 days, 5%)
+    numbers = re.findall(r'\d+[\d,.]*\s*(?:%|percent|billion|million|thousand)?', sentence)
+    score += len(numbers) * 1.5
+
+    # Title word overlap (sentence explains what headline promises)
+    title_words = set(re.findall(r'\b\w{4,}\b', t_lower))
+    sent_words = set(re.findall(r'\b\w{4,}\b', s_lower))
+    overlap = len(title_words & sent_words)
+    score += overlap * 0.5
+
+    # Position: first sentence is intro context, not always best;
+    # but the 2nd-4th sentences often contain the substance.
+    if 1 <= position <= 3:
+        score += 1.0
+    elif position == 0:
+        score += 0.5
+    # Last sentences sometimes have forward-looking statements
+    if position >= total - 2 and total > 4:
+        score += 0.3
+
+    # Penalize very short or very long sentences
+    if len(sentence) < 50:
+        score -= 1.0
+    if len(sentence) > 300:
+        score -= 0.5
+
+    return score
+
+
+def _summarize_body(text: str, title: str, max_chars: int = 400) -> str:
+    """Produce an extractive summary by selecting the most informative sentences.
+
+    Scores each sentence by keyword density, title relevance, numbers,
+    and position, then selects the top sentences that fit within max_chars.
+    The selected sentences are returned in their original article order
+    so the summary reads naturally.
     """
     if not text:
         return ""
 
-    # Normalise whitespace (RSS feeds often have bare newlines)
-    text = re.sub(r"\s+", " ", text).strip()
+    sentences = _split_sentences(text)
+    if not sentences:
+        return ""
 
-    if len(text) <= max_chars:
-        # Already short enough — just ensure it ends cleanly
-        if text and text[-1] not in ".!?\"'\u201d":
-            # Chop to last sentence boundary
-            m = list(re.finditer(r'[.!?]["\'"\u2019\u201d]?\s', text))
-            if m:
-                return text[: m[-1].end()].strip()
-        return text
+    # Score each sentence
+    scored: list[tuple[int, float, str]] = []
+    for i, sent in enumerate(sentences):
+        score = _score_sentence(sent, title, i, len(sentences))
+        scored.append((i, score, sent))
 
-    # Find all sentence boundaries (period/!/? followed by space or quote+space)
-    boundaries = list(re.finditer(r'[.!?]["\'"\u2019\u201d]?\s', text))
+    # Sort by score descending, pick top sentences
+    by_score = sorted(scored, key=lambda x: -x[1])
 
-    if not boundaries:
-        # No sentence boundary found — hard-truncate at last space
-        cut = text[:max_chars].rfind(" ")
-        return (text[:cut] if cut > 0 else text[:max_chars]).rstrip(" ,;:-") + "..."
-
-    # Take as many complete sentences as fit within max_chars
-    last_good = None
-    for boundary in boundaries:
-        end = boundary.end()
-        if end <= max_chars:
-            last_good = end
-        else:
+    selected_indices: list[int] = []
+    total_len = 0
+    for idx, _score, sent in by_score:
+        new_len = total_len + len(sent) + 1
+        if total_len > 0 and new_len > max_chars:
+            continue
+        selected_indices.append(idx)
+        total_len = new_len
+        if total_len >= max_chars * 0.8:
             break
 
-    if last_good is None:
-        # First sentence is longer than max_chars — keep it anyway
-        last_good = boundaries[0].end()
+    if not selected_indices:
+        # Fallback: just take the first sentence
+        return sentences[0] if sentences else ""
 
-    return text[:last_good].strip()
+    # Reassemble in original order for readability
+    selected_indices.sort()
+    return " ".join(sentences[i] for i in selected_indices if i < len(sentences))
 
 
 def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
@@ -255,9 +315,13 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """
     s = dict(signal)
 
-    # Map body_snippet to body if body is missing/empty
-    if not s.get("body") and s.get("body_snippet"):
-        s["body"] = _clean_body_to_sentences(s.pop("body_snippet"))
+    # Use full article body (body_text) if available, else RSS snippet
+    title_str = s.get("title", "")
+    if isinstance(title_str, dict):
+        title_str = title_str.get("en", "")
+    raw_body = s.pop("body_text", "") or s.pop("body_snippet", "") or s.get("body", "")
+    if raw_body and not isinstance(raw_body, dict):
+        s["body"] = _summarize_body(raw_body, title_str)
 
     # Bilingual text fields
     for key in ("title", "body", "source"):
