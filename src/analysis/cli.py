@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -215,8 +216,13 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
         else:
             s[key] = {"en": "", "zh": ""}
 
-    # Date: keep as string
-    if "date" not in s:
+    # Normalize date to YYYY-MM-DD
+    raw_date = s.get("date", "")
+    if raw_date:
+        parsed = _parse_signal_date(s)
+        if parsed:
+            s["date"] = parsed.strftime("%Y-%m-%d")
+    else:
         s["date"] = ""
 
     # Implications: generate from category + severity if missing
@@ -294,6 +300,135 @@ def _load_raw_signals(raw_dir: str) -> list[dict[str, Any]]:
                     signals.append(payload)
 
     return signals
+
+
+def _parse_signal_date(signal: dict[str, Any]) -> datetime | None:
+    """Try to parse a date from a signal using common formats."""
+    raw_date = signal.get("date", "")
+    if isinstance(raw_date, dict):
+        raw_date = raw_date.get("en", "")
+    if not raw_date:
+        return None
+
+    # Try common date formats
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%a, %d %b %Y %H:%M:%S %z",  # RSS format
+        "%a, %d %b %Y %H:%M:%S %Z",
+    ):
+        try:
+            return datetime.strptime(raw_date[:len(raw_date)], fmt).replace(tzinfo=None)
+        except ValueError:
+            continue
+
+    # Try ISO-ish prefix: "2026-01-29..."
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", raw_date)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), "%Y-%m-%d")
+        except ValueError:
+            pass
+
+    return None
+
+
+# Keywords that indicate Canada-side relevance
+_CANADA_KEYWORDS = [
+    "canada", "canadian", "ottawa", "trudeau",
+    "canola", "huawei", "meng wanzhou",
+    "five eyes", "norad", "arctic",
+    "bilateral", "canada-china",
+]
+
+# Keywords that indicate China-side relevance
+_CHINA_KEYWORDS = [
+    "china", "chinese", "beijing", "prc",
+    "xi jinping", "hong kong", "taiwan",
+    "xinjiang", "tibet", "cpc",
+]
+
+
+def _is_bilateral(signal: dict[str, Any]) -> bool:
+    """Check if a signal is about Canada-China bilateral relations.
+
+    Requires BOTH Canada-related AND China-related keywords to be present.
+    """
+    title = signal.get("title", "")
+    body = signal.get("body_snippet", signal.get("body", ""))
+    if isinstance(title, dict):
+        title = title.get("en", "")
+    if isinstance(body, dict):
+        body = body.get("en", "")
+    text = f"{title} {body}".lower()
+    has_canada = any(kw in text for kw in _CANADA_KEYWORDS)
+    has_china = any(kw in text for kw in _CHINA_KEYWORDS)
+    return has_canada and has_china
+
+
+def _filter_and_prioritize_signals(
+    signals: list[dict[str, Any]],
+    target_date: str,
+    min_signals: int = 5,
+    max_signals: int = 15,
+) -> list[dict[str, Any]]:
+    """Filter signals to recent ones and prioritize bilateral news.
+
+    Uses an adaptive time window: starts at 24 hours and expands
+    (48h, 72h, 7d) until at least ``min_signals`` are found.
+
+    Priority order:
+      1. Bilateral Canada-China signals (highest priority)
+      2. General China / policy signals
+
+    Args:
+        signals: All raw signals from fetchers.
+        target_date: Pipeline target date (YYYY-MM-DD).
+        min_signals: Minimum number of signals before expanding window.
+        max_signals: Maximum number of signals to return.
+
+    Returns:
+        Filtered and prioritized signal list.
+    """
+    target_dt = datetime.strptime(target_date, "%Y-%m-%d") + timedelta(hours=23, minutes=59)
+
+    # Pre-parse all signal dates
+    dated: list[tuple[dict[str, Any], datetime]] = []
+    undated: list[dict[str, Any]] = []
+    for signal in signals:
+        dt = _parse_signal_date(signal)
+        if dt is not None:
+            dated.append((signal, dt))
+        else:
+            undated.append(signal)
+
+    # Adaptive window: expand until we have enough DATED signals.
+    # Undated signals (e.g. Xinhua scraped today) are always included
+    # but don't count toward the minimum — we want real dated news.
+    windows_hours = [24, 48, 72, 168]  # 1d, 2d, 3d, 7d
+    recent: list[dict[str, Any]] = []
+
+    for window in windows_hours:
+        cutoff = target_dt - timedelta(hours=window)
+        recent = [s for s, dt in dated if dt >= cutoff]
+        if len(recent) >= min_signals:
+            break
+
+    logger.info(
+        "Recency filter: %d dated within %dh + %d undated = %d (of %d total)",
+        len(recent), window, len(undated), len(recent) + len(undated), len(signals),
+    )
+
+    all_candidates = recent + undated
+
+    # Split into bilateral (Canada-China) and general
+    bilateral = [s for s in all_candidates if _is_bilateral(s)]
+    general = [s for s in all_candidates if not _is_bilateral(s)]
+
+    # Prioritize: bilateral first, then general, up to max_signals
+    prioritized = bilateral + general
+    return prioritized[:max_signals]
 
 
 def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
@@ -685,21 +820,45 @@ def _extract_market_signals(
 
 
 def _generate_quote(signals: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pick the highest-severity signal's title as the quote."""
+    """Pick the best signal's title as the quote.
+
+    Scoring: prefer bilateral > China-related, higher severity,
+    official sources, and more recent dates.
+    """
     severity_rank = {"critical": 0, "high": 1, "elevated": 2, "moderate": 3, "low": 4}
-    # Prefer official sources for the quote
-    source_rank = {"Global Affairs Canada": 0, "Parliament of Canada": 1}
+    source_rank = {"Global Affairs Canada": 0, "Parliament of Canada": 1, "Xinhua": 2}
 
     best = None
-    best_score = (5, 5)  # (severity_rank, source_rank) — lower is better
+    best_score = (9, 9, 9, 9)  # (relevance, severity, has_date, source) — lower is better
 
     for s in signals:
+        # Check if the TITLE explicitly mentions China
+        title = s.get("title", "")
+        if isinstance(title, dict):
+            title = title.get("en", "")
+        title_lower = title.lower()
+        china_in_title = any(
+            kw in title_lower
+            for kw in ["china", "chinese", "beijing", "xi ", "xi's"]
+        )
+        bilateral_in_title = china_in_title and any(
+            kw in title_lower for kw in ["canada", "canadian", "ottawa"]
+        )
+        if bilateral_in_title:
+            relevance = 0
+        elif china_in_title:
+            relevance = 1
+        else:
+            relevance = 2
+
         sev = severity_rank.get(s.get("severity", "low"), 4)
         src_name = s.get("source", "")
         if isinstance(src_name, dict):
             src_name = src_name.get("en", "")
         src = source_rank.get(src_name, 3)
-        score = (sev, src)
+        # Prefer signals with dates (0) over undated (1)
+        has_date = 0 if s.get("date") else 1
+        score = (relevance, sev, has_date, src)
         if score < best_score:
             best_score = score
             best = s
@@ -790,6 +949,9 @@ def run(
     logger.info("Loading raw signals from %s", resolved_raw)
     raw_signals = _load_raw_signals(resolved_raw)
     logger.info("Loaded %d raw signals", len(raw_signals))
+
+    # Filter to recent signals and prioritize bilateral news
+    raw_signals = _filter_and_prioritize_signals(raw_signals, target_date)
 
     # Load supplementary data
     supplementary = _load_supplementary_data(resolved_raw)
