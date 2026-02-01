@@ -204,107 +204,140 @@ def _generate_implications(category: str, severity: str) -> dict[str, Any]:
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences using punctuation boundaries."""
     text = re.sub(r"\s+", " ", text).strip()
-    # Split on sentence-ending punctuation followed by space + uppercase
     raw = re.split(r'(?<=[.!?])\s+(?=[A-Z\u201c\u2018\"\'(])', text)
     return [s.strip() for s in raw if s.strip() and len(s.strip()) > 15]
 
 
-# Keywords that signal informative content (not background / filler)
-_INFO_KEYWORDS = [
-    "announced", "said", "according", "revealed", "confirmed",
-    "launched", "signed", "agreed", "imposed", "banned", "approved",
-    "plans to", "will ", "expected", "reported",
-    "billion", "million", "percent", "%",
-    "first", "new ", "biggest", "largest", "record",
+# Filler / transition patterns to penalise
+_FILLER_PATTERNS = [
+    r"^here (?:are|is) \w+",          # "Here are five ways..."
+    r"^(?:but |and |so |yet )",        # conjunction openers
+    r"^over the (?:past|last) \w+",    # "Over the past two years..."
+    r"^in recent (?:years|months)",
+    r"^(?:this|that) (?:comes?|came)",
+    r"never been (?:easier|harder)",
 ]
 
 
 def _score_sentence(sentence: str, title: str, position: int, total: int) -> float:
-    """Score a sentence for informativeness.
-
-    Factors: keyword density, title overlap, named entities / numbers,
-    position (first and last sentences get a boost).
-    """
+    """Score a sentence for informativeness."""
     s_lower = sentence.lower()
     t_lower = title.lower()
     score = 0.0
 
-    # Information keywords
-    for kw in _INFO_KEYWORDS:
-        if kw in s_lower:
-            score += 1.0
+    # Numbers and data points are the strongest signal of substance
+    numbers = re.findall(r'\d+[\d,.]*\s*(?:%|percent|billion|million|thousand|days?|countries)?', sentence)
+    score += len(numbers) * 2.0
 
-    # Numbers / data points (e.g. $3.7 million, 30 days, 5%)
-    numbers = re.findall(r'\d+[\d,.]*\s*(?:%|percent|billion|million|thousand)?', sentence)
-    score += len(numbers) * 1.5
+    # Specific details: proper nouns, quoted speech, named entities
+    proper_nouns = re.findall(r'[A-Z][a-z]+(?:\s[A-Z][a-z]+)*', sentence)
+    score += min(len(proper_nouns), 3) * 0.5
 
-    # Title word overlap (sentence explains what headline promises)
+    # Title word overlap — sentence explains what headline promises
     title_words = set(re.findall(r'\b\w{4,}\b', t_lower))
     sent_words = set(re.findall(r'\b\w{4,}\b', s_lower))
     overlap = len(title_words & sent_words)
-    score += overlap * 0.5
+    score += overlap * 1.0
 
-    # Position: first sentence is intro context, not always best;
-    # but the 2nd-4th sentences often contain the substance.
-    if 1 <= position <= 3:
-        score += 1.0
-    elif position == 0:
-        score += 0.5
-    # Last sentences sometimes have forward-looking statements
-    if position >= total - 2 and total > 4:
-        score += 0.3
+    # Action verbs that indicate substance
+    if re.search(r'\b(?:announced?|said|allow|permit|grant|require|impose|launch|sign|ban|approv)', s_lower):
+        score += 1.5
 
-    # Penalize very short or very long sentences
-    if len(sentence) < 50:
+    # Penalise filler / transition sentences
+    for pat in _FILLER_PATTERNS:
+        if re.search(pat, s_lower):
+            score -= 3.0
+            break
+
+    # Penalise very short sentences
+    if len(sentence) < 60:
         score -= 1.0
-    if len(sentence) > 300:
-        score -= 0.5
+
+    # Headings and list items from the fetcher get a boost
+    if sentence.startswith("[heading] ") or sentence.startswith("[item] "):
+        score += 3.0
 
     return score
 
 
-def _summarize_body(text: str, title: str, max_chars: int = 400) -> str:
-    """Produce an extractive summary by selecting the most informative sentences.
+def _extract_list_items(text: str) -> list[str]:
+    """Extract [heading] and [item] tagged lines from enriched body text."""
+    items: list[str] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if line.startswith("[heading] "):
+            items.append(line[10:])
+        elif line.startswith("[item] "):
+            items.append(line[7:])
+    return items
 
-    Scores each sentence by keyword density, title relevance, numbers,
-    and position, then selects the top sentences that fit within max_chars.
-    The selected sentences are returned in their original article order
-    so the summary reads naturally.
+
+def _is_list_headline(title: str) -> bool:
+    """Check if headline promises a list (e.g. '5 ways', '3 reasons')."""
+    return bool(re.search(r'\b\d+\s+(?:way|reason|thing|tip|step|method|sign|trend|takeaway)', title, re.I))
+
+
+def _summarize_body(text: str, title: str, max_chars: int = 450) -> str:
+    """Produce an extractive summary from article body text.
+
+    For list-style articles (e.g. "5 ways"), extracts headings/items
+    and presents them as a concise list.
+    For regular articles, picks the most informative sentences by scoring
+    on data density, title relevance, and specificity.
     """
     if not text:
         return ""
 
-    sentences = _split_sentences(text)
+    # --- List-style articles: extract headings / items ---
+    if _is_list_headline(title):
+        items = _extract_list_items(text)
+        # Only use list format if we found multiple actual list items
+        if len(items) >= 2:
+            summary_parts: list[str] = []
+            total = 0
+            for item in items:
+                short = item.split(".")[0].strip() if len(item) > 100 else item
+                if total + len(short) + 4 > max_chars:
+                    break
+                summary_parts.append(short)
+                total += len(short) + 4
+            if len(summary_parts) >= 2:
+                return " • ".join(summary_parts)
+
+    # --- Regular articles: extractive summarization ---
+    # Remove heading/item lines (standfirsts, subheads) — keep only prose
+    lines = [ln for ln in text.split("\n") if not ln.strip().startswith(("[heading]", "[item]"))]
+    clean = " ".join(lines)
+    sentences = _split_sentences(clean)
     if not sentences:
         return ""
 
-    # Score each sentence
+    # Score and rank
     scored: list[tuple[int, float, str]] = []
     for i, sent in enumerate(sentences):
         score = _score_sentence(sent, title, i, len(sentences))
         scored.append((i, score, sent))
 
-    # Sort by score descending, pick top sentences
     by_score = sorted(scored, key=lambda x: -x[1])
 
-    selected_indices: list[int] = []
+    # Select top sentences within budget
+    selected: list[int] = []
     total_len = 0
-    for idx, _score, sent in by_score:
-        new_len = total_len + len(sent) + 1
-        if total_len > 0 and new_len > max_chars:
+    for idx, _sc, sent in by_score:
+        added = len(sent) + (1 if total_len else 0)
+        if total_len > 0 and total_len + added > max_chars:
             continue
-        selected_indices.append(idx)
-        total_len = new_len
-        if total_len >= max_chars * 0.8:
+        selected.append(idx)
+        total_len += added
+        if total_len >= max_chars * 0.75:
             break
 
-    if not selected_indices:
-        # Fallback: just take the first sentence
+    if not selected:
         return sentences[0] if sentences else ""
 
-    # Reassemble in original order for readability
-    selected_indices.sort()
-    return " ".join(sentences[i] for i in selected_indices if i < len(sentences))
+    # Reassemble in original order
+    selected.sort()
+    return " ".join(sentences[i] for i in selected)
 
 
 def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
