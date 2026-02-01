@@ -20,10 +20,10 @@ SOURCE_TIER_SCORES: dict[str, int] = {
 }
 
 SEVERITY_THRESHOLDS: list[tuple[int, str]] = [
-    (10, "critical"),
-    (7, "high"),
-    (5, "elevated"),
-    (3, "moderate"),
+    (8, "critical"),
+    (6, "high"),
+    (4, "elevated"),
+    (2, "moderate"),
     (0, "low"),
 ]
 

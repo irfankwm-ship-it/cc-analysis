@@ -21,6 +21,9 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
             "PBOC",
             "MFA",
             "Taiwan Ministry of National Defense",
+            "Xinhua",
+            "CAC",
+            "SAMR",
         ],
         "zh": [
             "\u52A0\u62FF\u5927\u5168\u7403\u4E8B\u52A1\u90E8",
@@ -30,10 +33,13 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
             "\u4E2D\u56FD\u4EBA\u6C11\u94F6\u884C",
             "\u5916\u4EA4\u90E8",
             "\u53F0\u6E7E\u56FD\u9632\u90E8",
+            "\u65B0\u534E\u793E",
+            "\u7F51\u4FE1\u529E",
+            "\u5E02\u573A\u76D1\u7BA1\u603B\u5C40",
         ],
     },
     "wire": {
-        "en": ["Reuters", "AP", "AFP", "Bloomberg"],
+        "en": ["Reuters", "AP", "AFP", "Bloomberg", "Nikkei Asia"],
         "zh": [
             "\u8DEF\u900F\u793E",
             "\u7F8E\u8054\u793E",
@@ -42,7 +48,10 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
         ],
     },
     "specialist": {
-        "en": ["CSIS", "Sinocism", "China Brief", "MERICS", "OSINT"],
+        "en": [
+            "CSIS", "Sinocism", "China Brief", "MERICS", "OSINT",
+            "The Diplomat", "Asia Times",
+        ],
         "zh": [
             "\u52A0\u62FF\u5927\u5B89\u5168\u60C5\u62A5\u5C40",
             "\u5F00\u6E90\u60C5\u62A5",
@@ -53,17 +62,19 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
             "Globe and Mail",
             "CBC",
             "South China Morning Post",
-            "Xinhua",
-            "CAC",
-            "SAMR",
+            "SCMP",
+            "SCMP Politics",
+            "SCMP Diplomacy",
+            "SCMP Economy",
+            "SCMP Business",
+            "SCMP Tech",
+            "SCMP Geopolitics",
+            "BBC",
         ],
         "zh": [
             "\u73AF\u7403\u90AE\u62A5",
             "CBC",
             "\u5357\u534E\u65E9\u62A5",
-            "\u65B0\u534E\u793E",
-            "\u7F51\u4FE1\u529E",
-            "\u5E02\u573A\u76D1\u7BA1\u603B\u5C40",
         ],
     },
 }
