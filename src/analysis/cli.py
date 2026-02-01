@@ -201,6 +201,52 @@ def _generate_implications(category: str, severity: str) -> dict[str, Any]:
     }
 
 
+def _clean_body_to_sentences(text: str, max_chars: int = 400) -> str:
+    """Truncate text at the last complete sentence within max_chars.
+
+    Splits on sentence-ending punctuation (. ! ?) followed by whitespace
+    or end-of-string, keeping as many complete sentences as fit.
+    Returns at least the first sentence even if it exceeds max_chars.
+    """
+    if not text:
+        return ""
+
+    # Normalise whitespace (RSS feeds often have bare newlines)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if len(text) <= max_chars:
+        # Already short enough — just ensure it ends cleanly
+        if text and text[-1] not in ".!?\"'\u201d":
+            # Chop to last sentence boundary
+            m = list(re.finditer(r'[.!?]["\'"\u2019\u201d]?\s', text))
+            if m:
+                return text[: m[-1].end()].strip()
+        return text
+
+    # Find all sentence boundaries (period/!/? followed by space or quote+space)
+    boundaries = list(re.finditer(r'[.!?]["\'"\u2019\u201d]?\s', text))
+
+    if not boundaries:
+        # No sentence boundary found — hard-truncate at last space
+        cut = text[:max_chars].rfind(" ")
+        return (text[:cut] if cut > 0 else text[:max_chars]).rstrip(" ,;:-") + "..."
+
+    # Take as many complete sentences as fit within max_chars
+    last_good = None
+    for boundary in boundaries:
+        end = boundary.end()
+        if end <= max_chars:
+            last_good = end
+        else:
+            break
+
+    if last_good is None:
+        # First sentence is longer than max_chars — keep it anyway
+        last_good = boundaries[0].end()
+
+    return text[:last_good].strip()
+
+
 def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """Normalize a classified signal to conform to the processed schema.
 
@@ -211,7 +257,7 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
 
     # Map body_snippet to body if body is missing/empty
     if not s.get("body") and s.get("body_snippet"):
-        s["body"] = s.pop("body_snippet")
+        s["body"] = _clean_body_to_sentences(s.pop("body_snippet"))
 
     # Bilingual text fields
     for key in ("title", "body", "source"):
