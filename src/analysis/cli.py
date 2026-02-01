@@ -370,8 +370,8 @@ def _is_bilateral(signal: dict[str, Any]) -> bool:
 def _filter_and_prioritize_signals(
     signals: list[dict[str, Any]],
     target_date: str,
-    min_signals: int = 5,
-    max_signals: int = 15,
+    min_signals: int = 10,
+    max_signals: int = 25,
 ) -> list[dict[str, Any]]:
     """Filter signals to recent ones and prioritize bilateral news.
 
