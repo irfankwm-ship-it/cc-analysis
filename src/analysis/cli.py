@@ -342,9 +342,10 @@ def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
 
     # Transform movers from raw data
     def _fmt_mover(m: dict) -> dict:
+        price_val = m.get("close") or m.get("value")
         return {
             "name": {"en": m.get("name", ""), "zh": m.get("name", "")},
-            "price": f"HK${m.get('value', 0):,.2f}" if m.get("value") else "",
+            "price": f"HK${price_val:,.2f}" if price_val else "",
             "change": f"{m.get('change_pct', 0):+.2f}%",
         }
 
