@@ -131,18 +131,35 @@ def build_entity_directory(
 
     # Entity type mapping based on known IDs
     entity_types: dict[str, str] = {
+        # People
         "xi_jinping": "people",
         "wang_yi": "people",
         "two_michaels": "people",
+        # Institutions
         "mofcom": "institution",
         "mfa": "institution",
         "csis": "institution",
         "ufwd": "institution",
         "mss": "institution",
+        "pboc": "institution",
+        "npc": "institution",
+        "cpc": "institution",
+        "state_council": "institution",
+        "pla": "institution",
+        # Organizations
         "huawei": "org",
+        # Commodities / economic
         "canola": "commodity",
         "rare_earths": "commodity",
         "softwood_lumber": "commodity",
+        "semiconductor": "commodity",
+        "yuan": "commodity",
+        # Topics / geopolitical
+        "taiwan": "topic",
+        "south_china_sea": "topic",
+        "hong_kong": "topic",
+        "xinjiang": "topic",
+        "bri": "topic",
     }
 
     for match in entity_matches:

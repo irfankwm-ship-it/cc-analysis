@@ -1,7 +1,6 @@
 xi_jinping:
   en:
     - Xi Jinping
-    - Xi
     - President Xi
     - General Secretary Xi
   zh:
@@ -9,12 +8,66 @@ xi_jinping:
     - "\u4E60\u4E3B\u5E2D"
     - "\u4E60\u603B\u4E66\u8BB0"
 
+taiwan:
+  en:
+    - Taiwan
+    - Taipei
+    - Taiwan Strait
+    - cross-strait
+  zh:
+    - "\u53F0\u6E7E"
+    - "\u53F0\u5317"
+    - "\u53F0\u6D77"
+
+pla:
+  en:
+    - PLA
+    - People's Liberation Army
+    - Chinese military
+    - China's military
+  zh:
+    - "\u89E3\u653E\u519B"
+    - "\u4EBA\u6C11\u89E3\u653E\u519B"
+
+south_china_sea:
+  en:
+    - South China Sea
+    - Scarborough Shoal
+    - Spratly
+    - Paracel
+  zh:
+    - "\u5357\u6D77"
+    - "\u9EC4\u5CA9\u5C9B"
+    - "\u5357\u6C99"
+    - "\u897F\u6C99"
+
+hong_kong:
+  en:
+    - Hong Kong
+  zh:
+    - "\u9999\u6E2F"
+
+pboc:
+  en:
+    - PBOC
+    - People's Bank of China
+    - central bank
+  zh:
+    - "\u4EBA\u6C11\u94F6\u884C"
+    - "\u592E\u884C"
+
 mofcom:
   en:
     - MOFCOM
     - Ministry of Commerce
   zh:
     - "\u5546\u52A1\u90E8"
+
+mfa:
+  en:
+    - Ministry of Foreign Affairs
+  zh:
+    - "\u5916\u4EA4\u90E8"
 
 canola:
   en:
@@ -28,16 +81,8 @@ canola:
 huawei:
   en:
     - Huawei
-    - HW
   zh:
     - "\u534E\u4E3A"
-
-mfa:
-  en:
-    - MFA
-    - Ministry of Foreign Affairs
-  zh:
-    - "\u5916\u4EA4\u90E8"
 
 wang_yi:
   en:
@@ -57,6 +102,33 @@ rare_earths:
     - "\u9553"
     - "\u9574"
     - "\u5173\u952E\u77FF\u4EA7"
+
+semiconductor:
+  en:
+    - semiconductor
+    - chip
+    - chipmaker
+    - SMIC
+  zh:
+    - "\u534A\u5BFC\u4F53"
+    - "\u82AF\u7247"
+    - "\u4E2D\u82AF\u56FD\u9645"
+
+bri:
+  en:
+    - Belt and Road
+    - BRI
+  zh:
+    - "\u4E00\u5E26\u4E00\u8DEF"
+
+yuan:
+  en:
+    - yuan
+    - renminbi
+    - RMB
+  zh:
+    - "\u4EBA\u6C11\u5E01"
+    - "\u5143"
 
 csis:
   en:
@@ -100,3 +172,34 @@ two_michaels:
     - "\u4E24\u4E2A\u8FC8\u514B\u5C14"
     - "\u5EB7\u660E\u51EF"
     - "\u8FC8\u514B\u5C14\u00B7\u65AF\u5E15\u5F17"
+
+npc:
+  en:
+    - National People's Congress
+    - NPC Standing Committee
+  zh:
+    - "\u5168\u56FD\u4EBA\u5927"
+    - "\u5168\u56FD\u4EBA\u5927\u5E38\u59D4\u4F1A"
+
+cpc:
+  en:
+    - Communist Party
+    - CPC
+    - Chinese Communist Party
+  zh:
+    - "\u4E2D\u56FD\u5171\u4EA7\u515A"
+    - "\u4E2D\u5171"
+
+xinjiang:
+  en:
+    - Xinjiang
+    - Uyghur
+  zh:
+    - "\u65B0\u7586"
+    - "\u7EF4\u543E\u5C14"
+
+state_council:
+  en:
+    - State Council
+  zh:
+    - "\u56FD\u52A1\u9662"
