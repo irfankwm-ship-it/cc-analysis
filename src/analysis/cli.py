@@ -209,6 +209,10 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """
     s = dict(signal)
 
+    # Map body_snippet to body if body is missing/empty
+    if not s.get("body") and s.get("body_snippet"):
+        s["body"] = s.pop("body_snippet")
+
     # Bilingual text fields
     for key in ("title", "body", "source"):
         if key in s:
