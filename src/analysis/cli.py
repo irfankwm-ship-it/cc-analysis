@@ -326,10 +326,36 @@ def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
             "sparkline_points": sparkline_points,
         })
 
+    # Transform sectors from raw data
+    sectors = []
+    for sec in raw.get("sectors", []):
+        change_pct = sec.get("change_pct", 0)
+        direction = "up" if change_pct >= 0 else "down"
+        sectors.append({
+            "name": {"en": sec.get("name", ""), "zh": sec.get("name", "")},
+            "index_name": {"en": sec.get("index_name", sec.get("name", "")),
+                           "zh": sec.get("index_name", sec.get("name", ""))},
+            "value": f"{sec.get('value', 0):,.2f}" if sec.get("value") else "",
+            "change": f"{change_pct:+.2f}%",
+            "direction": direction,
+        })
+
+    # Transform movers from raw data
+    def _fmt_mover(m: dict) -> dict:
+        return {
+            "name": {"en": m.get("name", ""), "zh": m.get("name", "")},
+            "price": f"HK${m.get('value', 0):,.2f}" if m.get("value") else "",
+            "change": f"{m.get('change_pct', 0):+.2f}%",
+        }
+
+    raw_movers = raw.get("movers", {})
+    gainers = [_fmt_mover(m) for m in raw_movers.get("gainers", [])]
+    losers = [_fmt_mover(m) for m in raw_movers.get("losers", [])]
+
     return {
         "indices": indices,
-        "sectors": [],
-        "movers": {"gainers": [], "losers": []},
+        "sectors": sectors,
+        "movers": {"gainers": gainers, "losers": losers},
         "ipos": [],
     }
 
@@ -369,12 +395,43 @@ def _transform_trade_data(raw: dict[str, Any]) -> dict[str, Any]:
         },
     ]
 
-    # Pass through commodities if present
-    commodities = raw.get("commodities", [])
+    # Transform commodities into commodity_table for the site template
+    commodity_table = []
+    for c in raw.get("commodities", []):
+        exp_m = c.get("export_cad_millions", 0) or 0
+        imp_m = c.get("import_cad_millions", 0) or 0
+        bal_m = c.get("balance_cad_millions", exp_m - imp_m)
+        trend_val = c.get("trend", "stable")
+        disrupted = trend_val.lower() == "disrupted" if isinstance(trend_val, str) else False
+
+        # Map trend to bilingual display
+        trend_labels = {
+            "up": {"en": "Increasing", "zh": "增长"},
+            "down": {"en": "Decreasing", "zh": "下降"},
+            "stable": {"en": "Stable", "zh": "稳定"},
+            "disrupted": {"en": "Disrupted", "zh": "中断"},
+        }
+        trend_display = trend_labels.get(
+            trend_val.lower() if isinstance(trend_val, str) else "stable",
+            {"en": str(trend_val), "zh": str(trend_val)},
+        )
+
+        commodity_table.append({
+            "commodity": {
+                "en": c.get("name", c.get("name_en", "")),
+                "zh": c.get("name_zh", c.get("name", "")),
+            },
+            "export": _fmt_cad(exp_m),
+            "import": _fmt_cad(imp_m),
+            "balance": _fmt_cad(bal_m),
+            "balance_direction": "down" if bal_m < 0 else "up",
+            "trend": trend_display,
+            "disrupted": disrupted,
+        })
 
     return {
         "summary_stats": summary_stats,
-        "commodities": commodities,
+        "commodity_table": commodity_table,
         "totals": raw.get("totals", {}),
         "reference_period": raw.get("reference_period", ""),
     }
@@ -592,6 +649,40 @@ def _generate_todays_number(
     }
 
 
+def _extract_market_signals(
+    signals: list[dict[str, Any]],
+    max_count: int = 5,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract market signals and regulatory signals from classified signals.
+
+    Market signals: signals with category trade, economic, or technology.
+    Regulatory signals: signals with category legal.
+
+    Returns:
+        Tuple of (market_signals, regulatory_signals).
+    """
+    severity_rank = {"critical": 0, "high": 1, "elevated": 2, "moderate": 3, "low": 4}
+
+    market_categories = {"trade", "economic", "technology"}
+    regulatory_categories = {"legal"}
+
+    market = []
+    regulatory = []
+
+    for s in signals:
+        cat = s.get("category", "")
+        if cat in market_categories:
+            market.append(s)
+        elif cat in regulatory_categories:
+            regulatory.append(s)
+
+    # Sort by severity, take top N
+    market.sort(key=lambda s: severity_rank.get(s.get("severity", "low"), 4))
+    regulatory.sort(key=lambda s: severity_rank.get(s.get("severity", "low"), 4))
+
+    return market[:max_count], regulatory[:max_count]
+
+
 def _generate_quote(signals: list[dict[str, Any]]) -> dict[str, Any]:
     """Pick the highest-severity signal's title as the quote."""
     severity_rank = {"critical": 0, "high": 1, "elevated": 2, "moderate": 3, "low": 4}
@@ -785,6 +876,18 @@ def run(
     todays_number = _generate_todays_number(supplementary, classified_signals)
     quote = _generate_quote(classified_signals)
 
+    # Step 7c: Extract market & regulatory signals
+    market_signals, regulatory_signals = _extract_market_signals(classified_signals)
+    logger.info(
+        "Extracted %d market signals, %d regulatory signals",
+        len(market_signals), len(regulatory_signals),
+    )
+
+    # Inject market/regulatory signals into market_data
+    md = supplementary.get("market_data") or {}
+    md["market_signals"] = market_signals
+    md["regulatory_signals"] = regulatory_signals
+
     # Step 8: Assemble briefing
     logger.info("Assembling briefing (volume %d)...", volume_number)
     briefing = assemble_briefing(
@@ -793,7 +896,7 @@ def run(
         signals=classified_signals,
         tension_index=tension.to_dict(),
         trade_data=supplementary.get("trade_data"),
-        market_data=supplementary.get("market_data"),
+        market_data=md,
         parliament=supplementary.get("parliament"),
         entities=entity_directory,
         active_situations=[s.to_dict() for s in situations],

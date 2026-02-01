@@ -203,7 +203,7 @@ def _default_trade_data() -> dict[str, Any]:
     """Return minimal default trade data."""
     return {
         "summary_stats": [],
-        "commodities": [],
+        "commodity_table": [],
     }
 
 
@@ -214,6 +214,8 @@ def _default_market_data() -> dict[str, Any]:
         "sectors": [],
         "movers": {"gainers": [], "losers": []},
         "ipos": [],
+        "market_signals": [],
+        "regulatory_signals": [],
     }
 
 
