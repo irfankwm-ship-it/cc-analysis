@@ -20,12 +20,14 @@ import click
 from analysis import __version__
 from analysis.active_situations import track_situations
 from analysis.classifiers.category import classify_signal
+from analysis.dedup import deduplicate_signals, load_recent_signals
 from analysis.classifiers.severity import classify_severity
 from analysis.classifiers.source_mapper import map_signal_source_tier
 from analysis.config import PROJECT_ROOT, load_config
 from analysis.entities import build_entity_directory, match_entities_across_signals
 from analysis.output import assemble_briefing, validate_briefing, write_archive, write_processed
 from analysis.tension_index import compute_tension_index
+from analysis.translate import translate_to_chinese
 from analysis.trend import compute_trends
 from analysis.volume_compiler import compile_volume, write_volume
 
@@ -399,6 +401,40 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     return s
 
 
+def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Translate all signal titles and bodies to Chinese in a single batch.
+
+    Truncates bodies to 300 chars before translation to conserve API quota.
+    Falls back gracefully if DEEPL_AUTH_KEY is not set or translation fails.
+    """
+    texts: list[str] = []
+    index_map: list[tuple[int, str]] = []  # (signal_idx, field)
+
+    for i, s in enumerate(signals):
+        title_en = s.get("title", {}).get("en", "")
+        body_en = s.get("body", {}).get("en", "")
+        if title_en:
+            texts.append(title_en)
+            index_map.append((i, "title"))
+        if body_en:
+            # Truncate body to conserve DeepL character budget
+            truncated = body_en[:300]
+            if len(body_en) > 300:
+                truncated = truncated.rsplit(" ", 1)[0] + "..."
+            texts.append(truncated)
+            index_map.append((i, "body"))
+
+    if not texts:
+        return signals
+
+    translated = translate_to_chinese(texts)
+
+    for (sig_idx, field), zh_text in zip(index_map, translated):
+        signals[sig_idx][field]["zh"] = zh_text
+
+    return signals
+
+
 def _load_raw_signals(raw_dir: str) -> list[dict[str, Any]]:
     """Load raw signal data from the raw directory.
 
@@ -496,6 +532,34 @@ _CHINA_KEYWORDS = [
     "xinjiang", "tibet", "cpc",
 ]
 
+# Broader China-relevance keywords for the analysis pipeline gate.
+# A signal must mention at least one of these to be considered relevant.
+_CHINA_RELEVANCE_KEYWORDS = [
+    "china", "chinese", "beijing", "prc", "taiwan", "hong kong",
+    "xinjiang", "tibet", "shanghai", "shenzhen", "guangdong",
+    "xi jinping", "cpc", "pla", "state council", "npc",
+    "huawei", "tiktok", "yuan", "renminbi",
+    "south china sea", "one country two systems",
+    "canada-china", "sino-canadian", "sino-",
+]
+
+
+def _is_china_relevant(signal: dict[str, Any]) -> bool:
+    """Check if a signal is relevant to China.
+
+    Returns True if the signal's title or body mentions at least one
+    China/bilateral keyword.  This is a broad gate to catch anything
+    the fetcher-level filters may have missed.
+    """
+    title = signal.get("title", "")
+    body = signal.get("body_snippet", signal.get("body", ""))
+    if isinstance(title, dict):
+        title = title.get("en", "")
+    if isinstance(body, dict):
+        body = body.get("en", "")
+    text = f"{title} {body}".lower()
+    return any(kw in text for kw in _CHINA_RELEVANCE_KEYWORDS)
+
 
 def _is_bilateral(signal: dict[str, Any]) -> bool:
     """Check if a signal is about Canada-China bilateral relations.
@@ -518,7 +582,7 @@ def _filter_and_prioritize_signals(
     signals: list[dict[str, Any]],
     target_date: str,
     min_signals: int = 10,
-    max_signals: int = 25,
+    max_signals: int = 40,
 ) -> list[dict[str, Any]]:
     """Filter signals to recent ones and prioritize bilateral news.
 
@@ -553,7 +617,7 @@ def _filter_and_prioritize_signals(
     # Adaptive window: expand until we have enough DATED signals.
     # Undated signals (e.g. Xinhua scraped today) are always included
     # but don't count toward the minimum — we want real dated news.
-    windows_hours = [24, 48, 72, 168]  # 1d, 2d, 3d, 7d
+    windows_hours = [72, 168]  # 3d, 7d — dedup prevents cross-day repeats
     recent: list[dict[str, Any]] = []
 
     for window in windows_hours:
@@ -573,9 +637,42 @@ def _filter_and_prioritize_signals(
     bilateral = [s for s in all_candidates if _is_bilateral(s)]
     general = [s for s in all_candidates if not _is_bilateral(s)]
 
-    # Prioritize: bilateral first, then general, up to max_signals
-    prioritized = bilateral + general
-    return prioritized[:max_signals]
+    # Source-diversified selection: round-robin across sources to ensure
+    # no single source dominates the briefing.
+    # Bilateral signals get priority, then general — but within each tier,
+    # we interleave sources.
+    def _source_key(signal: dict[str, Any]) -> str:
+        src = signal.get("source", "")
+        if isinstance(src, dict):
+            src = src.get("en", "")
+        # Merge SCMP sub-feeds into "SCMP" for diversity purposes
+        if src.startswith("SCMP"):
+            return "SCMP"
+        return src or "unknown"
+
+    def _round_robin(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        from collections import defaultdict
+        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for s in signals:
+            buckets[_source_key(s)].append(s)
+        # Sort source groups: smaller groups first (ensures minority sources
+        # get picked before they run out)
+        sorted_keys = sorted(buckets.keys(), key=lambda k: len(buckets[k]))
+        result: list[dict[str, Any]] = []
+        idx = 0
+        while True:
+            added = False
+            for k in sorted_keys:
+                if idx < len(buckets[k]):
+                    result.append(buckets[k][idx])
+                    added = True
+            if not added:
+                break
+            idx += 1
+        return result
+
+    diversified = _round_robin(bilateral) + _round_robin(general)
+    return diversified[:max_signals]
 
 
 def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
@@ -635,10 +732,24 @@ def _transform_market_data(raw: dict[str, Any]) -> dict[str, Any]:
     gainers = [_fmt_mover(m) for m in raw_movers.get("gainers", [])]
     losers = [_fmt_mover(m) for m in raw_movers.get("losers", [])]
 
+    # Currency pairs
+    currency_pairs = []
+    for pair in raw.get("currency_pairs", []):
+        change_pct = pair.get("change_pct", 0) or 0
+        direction = "up" if change_pct >= 0 else "down"
+        rate = pair.get("rate")
+        currency_pairs.append({
+            "name": {"en": pair.get("name", ""), "zh": pair.get("name", "")},
+            "rate": f"{rate:.4f}" if rate else "",
+            "change": f"{change_pct:+.4f}%",
+            "direction": direction,
+        })
+
     return {
         "indices": indices,
         "sectors": sectors,
         "movers": {"gainers": gainers, "losers": losers},
+        "currency_pairs": currency_pairs,
         "ipos": [],
     }
 
@@ -932,6 +1043,29 @@ def _generate_todays_number(
     }
 
 
+_REGULATORY_KEYWORDS = [
+    "regulation", "compliance", "antitrust", "samr", "cac",
+    "crackdown", "enforcement", "fine", "penalty", "probe",
+    "investigation", "license", "approval",
+]
+
+
+def _is_regulatory(signal: dict[str, Any]) -> bool:
+    """Check if a signal is about regulatory matters.
+
+    Requires the signal's text to contain at least one regulatory keyword,
+    not just a broad "legal" category match.
+    """
+    title = signal.get("title", "")
+    body = signal.get("body", "")
+    if isinstance(title, dict):
+        title = title.get("en", "")
+    if isinstance(body, dict):
+        body = body.get("en", "")
+    text = f"{title} {body}".lower()
+    return any(kw in text for kw in _REGULATORY_KEYWORDS)
+
+
 def _extract_market_signals(
     signals: list[dict[str, Any]],
     max_count: int = 5,
@@ -939,7 +1073,8 @@ def _extract_market_signals(
     """Extract market signals and regulatory signals from classified signals.
 
     Market signals: signals with category trade, economic, or technology.
-    Regulatory signals: signals with category legal.
+    Regulatory signals: signals that contain specific regulatory keywords
+    (not just category == "legal", which is too broad).
 
     Returns:
         Tuple of (market_signals, regulatory_signals).
@@ -947,7 +1082,6 @@ def _extract_market_signals(
     severity_rank = {"critical": 0, "high": 1, "elevated": 2, "moderate": 3, "low": 4}
 
     market_categories = {"trade", "economic", "technology"}
-    regulatory_categories = {"legal"}
 
     market = []
     regulatory = []
@@ -956,7 +1090,7 @@ def _extract_market_signals(
         cat = s.get("category", "")
         if cat in market_categories:
             market.append(s)
-        elif cat in regulatory_categories:
+        if _is_regulatory(s):
             regulatory.append(s)
 
     # Sort by severity, take top N
@@ -1100,6 +1234,25 @@ def run(
     # Filter to recent signals and prioritize bilateral news
     raw_signals = _filter_and_prioritize_signals(raw_signals, target_date)
 
+    # China-relevance gate: drop signals that don't mention China at all
+    pre_count = len(raw_signals)
+    raw_signals = [s for s in raw_signals if _is_china_relevant(s)]
+    if len(raw_signals) < pre_count:
+        logger.info(
+            "China-relevance filter: dropped %d of %d signals",
+            pre_count - len(raw_signals), pre_count,
+        )
+
+    # Deduplicate signals (within-day + cross-day)
+    logger.info("Deduplicating signals...")
+    previous_signals = load_recent_signals(
+        processed_dir=resolved_output,
+        archive_dir=resolved_archive,
+        current_date=target_date,
+        lookback_days=3,
+    )
+    raw_signals, dedup_stats = deduplicate_signals(raw_signals, previous_signals)
+
     # Load supplementary data
     supplementary = _load_supplementary_data(resolved_raw)
 
@@ -1142,6 +1295,10 @@ def run(
         classified_signals.append(classified)
 
     logger.info("Classified %d signals", len(classified_signals))
+
+    # Step 2b: Translate to Chinese (batch)
+    logger.info("Translating signals to Chinese...")
+    classified_signals = _translate_signals_batch(classified_signals)
 
     # Step 3: Compute trends (load previous day data)
     logger.info("Computing trends...")

@@ -31,7 +31,6 @@ diplomatic:
 trade:
   en:
     - tariff
-    - trade
     - export
     - import
     - dumping
@@ -103,8 +102,7 @@ technology:
     - AI
     - cyber
     - technology
-    - tech ban
-    - IP
+    - technology ban
     - intellectual property
     - data security
     - quantum
@@ -158,6 +156,7 @@ political:
 
 economic:
   en:
+    # Macro
     - PBOC
     - reserve requirement
     - interest rate
@@ -170,8 +169,40 @@ economic:
     - stimulus
     - inflation
     - deflation
-    - bond
-    - equity
+    # Corporate finance
+    - revenue
+    - profit
+    - loss
+    - earnings
+    - quarterly
+    - annual results
+    - sales growth
+    - market cap
+    - valuation
+    - IPO
+    - acquisition
+    - merger
+    - dividend
+    - share price
+    - stock market
+    - bond market
+    - credit rating
+    - debt
+    - default
+    - bankruptcy
+    - restructuring
+    # Sector / industry
+    - property market
+    - real estate
+    - developer
+    - retail sales
+    - consumer spending
+    - manufacturing
+    - supply chain
+    - commodity
+    - oil price
+    - gold price
+    - foreign direct investment
   zh:
     - "\u592E\u884C"
     - "\u51C6\u5907\u91D1"
@@ -186,6 +217,15 @@ economic:
     - "\u901A\u7F29"
     - "\u503A\u5238"
     - "\u80A1\u5E02"
+    - "\u6536\u5165"
+    - "\u5229\u6DA6"
+    - "\u4E8F\u635F"
+    - "\u623F\u5730\u4EA7"
+    - "\u5F00\u53D1\u5546"
+    - "\u96F6\u552E"
+    - "\u5236\u9020\u4E1A"
+    - "\u4F9B\u5E94\u94FE"
+    - "\u7834\u4EA7"
 
 social:
   en:
@@ -226,7 +266,9 @@ legal:
     - CAC
     - law enforcement
     - rule of law
-    - legal
+    - legal action
+    - lawsuit
+    - indictment
   zh:
     - "\u5F15\u6E21"
     - "\u6CD5\u9662"

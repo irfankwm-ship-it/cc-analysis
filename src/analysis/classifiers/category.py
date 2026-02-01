@@ -7,6 +7,7 @@ specific (fewer keyword) categories.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Categories ordered by specificity (fewer keywords = more specific).
@@ -15,11 +16,11 @@ SPECIFICITY_ORDER = [
     "legal",
     "social",
     "economic",
-    "political",
     "military",
     "technology",
     "diplomatic",
     "trade",
+    "political",  # least specific — only wins ties when no other category matches
 ]
 
 VALID_CATEGORIES = frozenset(
@@ -32,7 +33,7 @@ def _score_text_against_keywords(
     keywords: list[str],
     *,
     exact_weight: int = 3,
-    partial_weight: int = 1,
+    partial_weight: int = 0,
 ) -> int:
     """Score a text against a list of keywords.
 
@@ -74,6 +75,38 @@ def _score_text_against_keywords(
     return score
 
 
+def _fallback_category(text: str) -> str:
+    """Heuristic fallback when no keyword dictionary scores any hits.
+
+    Checks for financial signals, military terms, and technology terms
+    before defaulting to "political".
+    """
+    t = text.lower()
+    # Financial signals: dollar amounts or large numbers + business words
+    if re.search(r'\$[\d,.]+[bmk]?\b|\d+\s*(?:billion|million|percent|%)', t):
+        if any(w in t for w in (
+            'company', 'firm', 'corp', 'inc', 'group',
+            'stock', 'share', 'market', 'revenue',
+            'profit', 'loss', 'earn', 'sales',
+            'price', 'investor', 'ipo', 'fund',
+        )):
+            return "economic"
+    # Military signals
+    if any(w in t for w in (
+        'military', 'army', 'navy', 'pla', 'missile',
+        'defense', 'defence', 'warfare', 'troops',
+        'warship', 'fighter jet', 'bomber',
+    )):
+        return "military"
+    # Technology signals
+    if any(w in t for w in (
+        'chip', 'semiconductor', 'ai ', 'artificial intelligence',
+        'cyber', '5g', 'quantum', 'robot',
+    )):
+        return "technology"
+    return "political"
+
+
 def classify_category(
     text: str,
     categories_dict: dict[str, dict[str, list[str]]],
@@ -101,7 +134,7 @@ def classify_category(
         scores[category] = en_score + zh_score
 
     if not scores or max(scores.values()) == 0:
-        return "political"
+        return _fallback_category(text)
 
     max_score = max(scores.values())
     # Tie-breaking: prefer more specific categories (fewer total keywords)
@@ -144,13 +177,15 @@ def classify_signal(
     elif isinstance(title, str):
         parts.append(title)
 
-    # Handle bilingual body
-    body = signal.get("body", "")
-    if isinstance(body, dict):
-        parts.append(body.get("en", ""))
-        parts.append(body.get("zh", ""))
-    elif isinstance(body, str):
-        parts.append(body)
+    # Handle bilingual body — check body, body_text, body_snippet
+    for body_key in ("body", "body_text", "body_snippet"):
+        body = signal.get(body_key, "")
+        if isinstance(body, dict):
+            parts.append(body.get("en", ""))
+            parts.append(body.get("zh", ""))
+        elif isinstance(body, str) and body:
+            parts.append(body)
+            break  # use best available body field
 
     # Handle headline (raw fetcher format)
     headline = signal.get("headline", "")
