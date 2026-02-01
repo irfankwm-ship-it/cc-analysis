@@ -376,6 +376,7 @@ def _transform_trade_data(raw: dict[str, Any]) -> dict[str, Any]:
         "summary_stats": summary_stats,
         "commodities": commodities,
         "totals": raw.get("totals", {}),
+        "reference_period": raw.get("reference_period", ""),
     }
 
 
@@ -541,18 +542,43 @@ def _generate_todays_number(
         exports_val = totals.get("total_exports_cad")
         if imports_val and exports_val:
             total = imports_val + exports_val
-            if total >= 1000:
-                display = f"${total / 1000:.1f}B"
-                display_zh = f"{total / 1000:.1f}0亿加元"
-            else:
-                display = f"${total:.0f}M"
-                display_zh = f"{total:.0f}百万加元"
+
+            def _fmt(val: float) -> tuple[str, str]:
+                if val >= 1000:
+                    return f"${val / 1000:.1f}B", f"{val / 1000:.1f}0亿加元"
+                return f"${val:,.0f}M", f"{val:,.0f}百万加元"
+
+            total_en, total_zh = _fmt(total)
+            imports_en, imports_zh = _fmt(imports_val)
+            exports_en, exports_zh = _fmt(exports_val)
+
+            # Parse reference period for display (e.g. "2025-11-01" → "November 2025")
+            ref_period = trade.get("reference_period", "")
+            period_en = ref_period
+            period_zh = ref_period
+            if ref_period and len(ref_period) >= 7:
+                try:
+                    from datetime import datetime
+
+                    dt = datetime.strptime(ref_period[:7], "%Y-%m")
+                    period_en = dt.strftime("%B %Y")
+                    month_names_zh = [
+                        "", "1月", "2月", "3月", "4月", "5月", "6月",
+                        "7月", "8月", "9月", "10月", "11月", "12月",
+                    ]
+                    period_zh = f"{dt.year}年{month_names_zh[dt.month]}"
+                except ValueError:
+                    pass
+
             return {
-                "value": {"en": display, "zh": display_zh},
+                "value": {"en": total_en, "zh": total_zh},
                 "description": {
-                    "en": "Canada-China monthly bilateral trade volume",
-                    "zh": "加中月度双边贸易总额",
+                    "en": f"Canada-China bilateral trade ({period_en})",
+                    "zh": f"加中双边贸易总额（{period_zh}）",
                 },
+                "imports": {"en": imports_en, "zh": imports_zh},
+                "exports": {"en": exports_en, "zh": exports_zh},
+                "reference_period": ref_period,
             }
 
     # Fallback: use signal count
