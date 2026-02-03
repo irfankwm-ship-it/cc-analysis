@@ -38,6 +38,9 @@ jobs:
           fi
 
       - name: Run analysis
+        env:
+          OLLAMA_URL: ${{ secrets.OLLAMA_URL }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
           python -m analysis.cli run \
             --env prod \
