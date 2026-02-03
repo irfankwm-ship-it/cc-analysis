@@ -223,6 +223,24 @@ _FILLER_PATTERNS = [
     r"^in recent (?:years|months)",
     r"^(?:this|that) (?:comes?|came)",
     r"never been (?:easier|harder)",
+    r"^in \d{4},?\s",                  # "In 1965, ..." historical openings
+    r"^(?:back )?in the \d{4}s",       # "In the 1960s..."
+    r"^more than (?:the|a) ",          # "More than the chronology..."
+    r"^after (?:finishing|completing|graduating)",  # biographical narrative
+    r"^(?:he|she|they) (?:was|were) (?:born|raised|assigned)",
+    r"^the \d+-year-old",              # "The 24-year-old..."
+    r"^(?:one|two|three) of .{0,20}(?:most|first|last)",  # "One of the most loyal..."
+]
+
+# Patterns that indicate the sentence is a key point / thesis statement
+_KEY_POINT_PATTERNS = [
+    r"(?:will|would|may|could|should) (?:continue|remain|face|see|lead|result)",
+    r"(?:is|are) (?:expected|likely|set|poised|preparing) to",
+    r"(?:announced?|unveiled?|revealed?|confirmed?) (?:that|plans?|a new)",
+    r"(?:according to|said|stated|noted|emphasized)",
+    r"(?:the|this) (?:move|decision|policy|measure|action) (?:will|would|could|may)",
+    r"(?:signals?|indicates?|suggests?|shows?|reflects?) (?:that|a |the )",
+    r"^(?:china|beijing|the (?:u\.?s\.?|us)|washington|canada|ottawa)",  # Geopolitical actors as subject
 ]
 
 
@@ -254,15 +272,32 @@ def _score_sentence(sentence: str, title: str, position: int, total: int) -> flo
     if re.search(r'\b(?:announced?|said|allow|permit|grant|require|impose|launch|sign|ban|approv)', s_lower):
         score += 1.5
 
+    # Boost sentences that match key point patterns (thesis statements, forward-looking)
+    for pat in _KEY_POINT_PATTERNS:
+        if re.search(pat, s_lower):
+            score += 2.5
+            break
+
     # Penalise filler / transition sentences
     for pat in _FILLER_PATTERNS:
         if re.search(pat, s_lower):
-            score -= 3.0
+            score -= 4.0
             break
 
     # Penalise very short sentences
     if len(sentence) < 60:
         score -= 1.0
+
+    # Penalise very long sentences (often narrative/background)
+    if len(sentence) > 350:
+        score -= 1.5
+
+    # Position bias: first few sentences often contain the lede
+    if position < 3:
+        score += 1.5
+    # Middle of article is often background/history
+    elif 0.3 < position / max(total, 1) < 0.7:
+        score -= 0.5
 
     # Headings and list items from the fetcher get a boost
     if sentence.startswith("[heading] ") or sentence.startswith("[item] "):
