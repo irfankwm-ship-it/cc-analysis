@@ -1,10 +1,10 @@
-"""Chinese translation via MyMemory Translation API.
+"""Translation module with LLM primary and MyMemory fallback.
 
-Provides translation of English texts to Simplified Chinese.
-Gracefully falls back to returning original text if the API call fails.
+Provides translation between English and Simplified Chinese.
+Uses local LLM (via ollama) as the primary translator, falling back
+to the free MyMemory API when LLM is unavailable.
 
-Uses the free MyMemory API (api.mymemory.translated.net).
-Quota: ~5000 chars/day anonymous, higher with email/key.
+MyMemory quota: ~5000 chars/day anonymous, higher with email/key.
 """
 
 from __future__ import annotations
@@ -14,21 +14,28 @@ import time
 
 import requests
 
+from analysis.llm import llm_translate
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.mymemory.translated.net/get"
 
 
-def _translate_one(text: str) -> str | None:
-    """Translate a single English text to Simplified Chinese.
+def _mymemory_translate_one(text: str, langpair: str = "en|zh-CN") -> str | None:
+    """Translate a single text via MyMemory API.
 
-    Returns translated text, or None on failure.
+    Args:
+        text: Text to translate.
+        langpair: Language pair in MyMemory format (e.g. "en|zh-CN", "zh-CN|en").
+
+    Returns:
+        Translated text, or None on failure.
     """
     try:
         resp = requests.get(
             _BASE_URL,
             params={
-                "langpair": "en|zh-CN",
+                "langpair": langpair,
                 "q": text,
                 "de": "info@chinacompass.ca",
             },
@@ -51,32 +58,74 @@ def _translate_one(text: str) -> str | None:
         return None
 
 
-def translate_to_chinese(texts: list[str]) -> list[str]:
-    """Translate a list of English texts to Simplified Chinese.
+def _translate_batch(
+    texts: list[str],
+    source_lang: str,
+    target_lang: str,
+    mymemory_langpair: str,
+) -> list[str]:
+    """Translate a list of texts. LLM primary, MyMemory fallback.
 
-    Makes one API call per text with a small delay to respect rate limits.
-    Returns original texts for any that fail.
+    Args:
+        texts: Texts to translate.
+        source_lang: Source language code ("en" or "zh").
+        target_lang: Target language code ("en" or "zh").
+        mymemory_langpair: MyMemory langpair format string.
+
+    Returns:
+        Translated texts (original text used as fallback on failure).
     """
     non_empty = [(i, t) for i, t in enumerate(texts) if t.strip()]
     if not non_empty:
         return texts
 
     translated = list(texts)  # copy
-    success = 0
-    quota_done = False
+    llm_success = 0
+    mm_success = 0
 
     for idx, text in non_empty:
-        if quota_done:
-            break
-        result = _translate_one(text)
+        # Try LLM first
+        result = llm_translate(text, source_lang, target_lang)
         if result:
             translated[idx] = result
-            success += 1
-        elif result is None:
-            # Check if it was a quota issue (logged inside _translate_one)
-            pass
-        # Small delay between requests to respect rate limits
+            llm_success += 1
+            continue
+
+        # Fall back to MyMemory
+        result = _mymemory_translate_one(text, mymemory_langpair)
+        if result:
+            translated[idx] = result
+            mm_success += 1
+
+        # Small delay between MyMemory requests
         time.sleep(0.2)
 
-    logger.info("MyMemory: translated %d/%d texts to Chinese", success, len(non_empty))
+    total = len(non_empty)
+    logger.info(
+        "Translation %s→%s: %d/%d via LLM, %d/%d via MyMemory, %d/%d fallback",
+        source_lang,
+        target_lang,
+        llm_success,
+        total,
+        mm_success,
+        total,
+        total - llm_success - mm_success,
+        total,
+    )
     return translated
+
+
+def translate_to_chinese(texts: list[str]) -> list[str]:
+    """Translate a list of English texts to Simplified Chinese.
+
+    LLM primary, MyMemory fallback. Returns original texts for any that fail.
+    """
+    return _translate_batch(texts, "en", "zh", "en|zh-CN")
+
+
+def translate_to_english(texts: list[str]) -> list[str]:
+    """Translate a list of Chinese texts to English.
+
+    LLM primary, MyMemory fallback. Returns original texts for any that fail.
+    """
+    return _translate_batch(texts, "zh", "en", "zh-CN|en")

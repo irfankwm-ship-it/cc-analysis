@@ -20,14 +20,19 @@ import click
 from analysis import __version__
 from analysis.active_situations import track_situations
 from analysis.classifiers.category import classify_signal
-from analysis.dedup import deduplicate_signals, load_recent_signals
 from analysis.classifiers.severity import classify_severity
 from analysis.classifiers.source_mapper import map_signal_source_tier
 from analysis.config import PROJECT_ROOT, load_config
-from analysis.entities import build_entity_directory, match_entities_across_signals
+from analysis.dedup import deduplicate_signals, load_recent_signals
+from analysis.entities import (
+    build_entity_directory,
+    match_entities_across_signals,
+    match_entities_in_signal,
+)
+from analysis.llm import llm_summarize
 from analysis.output import assemble_briefing, validate_briefing, write_archive, write_processed
 from analysis.tension_index import compute_tension_index
-from analysis.translate import translate_to_chinese
+from analysis.translate import translate_to_chinese, translate_to_english
 from analysis.trend import compute_trends
 from analysis.volume_compiler import compile_volume, write_volume
 
@@ -239,7 +244,11 @@ def _score_sentence(sentence: str, title: str, position: int, total: int) -> flo
     title_words = set(re.findall(r'\b\w{4,}\b', t_lower))
     sent_words = set(re.findall(r'\b\w{4,}\b', s_lower))
     overlap = len(title_words & sent_words)
-    score += overlap * 1.0
+    score += overlap * 3.0
+
+    # Penalise sentences with no title relevance
+    if title_words and overlap == 0:
+        score -= 2.0
 
     # Action verbs that indicate substance
     if re.search(r'\b(?:announced?|said|allow|permit|grant|require|impose|launch|sign|ban|approv)', s_lower):
@@ -350,13 +359,29 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     """
     s = dict(signal)
 
+    # Detect source language
+    source_lang = s.get("language", "en")
+
     # Use full article body (body_text) if available, else RSS snippet
     title_str = s.get("title", "")
     if isinstance(title_str, dict):
         title_str = title_str.get("en", "")
     raw_body = s.pop("body_text", "") or s.pop("body_snippet", "") or s.get("body", "")
+
+    # Translate Chinese source to English before summarizing
+    if source_lang == "zh" and raw_body and not isinstance(raw_body, dict):
+        raw_body = translate_to_english([raw_body])[0]
+        if title_str:
+            title_str = translate_to_english([title_str])[0]
+
     if raw_body and not isinstance(raw_body, dict):
         s["body"] = _summarize_body(raw_body, title_str)
+
+        # LLM-enhanced summary for critical/high severity signals
+        if s.get("severity") in ("critical", "high"):
+            llm_result = llm_summarize(raw_body, title_str)
+            if llm_result:
+                s["body"] = llm_result
 
     # Bilingual text fields
     for key in ("title", "body", "source"):
@@ -402,35 +427,35 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
 
 
 def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Translate all signal titles and bodies to Chinese in a single batch.
+    """Translate signal titles and bodies to create bilingual content.
 
-    Truncates bodies to 300 chars before translation to conserve API quota.
-    Falls back gracefully if DEEPL_AUTH_KEY is not set or translation fails.
+    For English-source signals: translates EN → ZH.
+    For Chinese-source signals: translates EN summary back to ZH.
+
+    Truncates bodies to 300 chars before translation to conserve quota.
+    Uses LLM primary with MyMemory fallback.
     """
-    texts: list[str] = []
-    index_map: list[tuple[int, str]] = []  # (signal_idx, field)
+    en_to_zh_texts: list[str] = []
+    en_to_zh_map: list[tuple[int, str]] = []  # (signal_idx, field)
 
     for i, s in enumerate(signals):
         title_en = s.get("title", {}).get("en", "")
         body_en = s.get("body", {}).get("en", "")
+
         if title_en:
-            texts.append(title_en)
-            index_map.append((i, "title"))
+            en_to_zh_texts.append(title_en)
+            en_to_zh_map.append((i, "title"))
         if body_en:
-            # Truncate body to conserve DeepL character budget
             truncated = body_en[:300]
             if len(body_en) > 300:
                 truncated = truncated.rsplit(" ", 1)[0] + "..."
-            texts.append(truncated)
-            index_map.append((i, "body"))
+            en_to_zh_texts.append(truncated)
+            en_to_zh_map.append((i, "body"))
 
-    if not texts:
-        return signals
-
-    translated = translate_to_chinese(texts)
-
-    for (sig_idx, field), zh_text in zip(index_map, translated):
-        signals[sig_idx][field]["zh"] = zh_text
+    if en_to_zh_texts:
+        translated = translate_to_chinese(en_to_zh_texts)
+        for (sig_idx, field), zh_text in zip(en_to_zh_map, translated):
+            signals[sig_idx][field]["zh"] = zh_text
 
     return signals
 
@@ -1243,13 +1268,24 @@ def run(
             pre_count - len(raw_signals), pre_count,
         )
 
+    # Pre-classify: add category and entity_ids to raw signals for dedup
+    # (Entity-based dedup needs these fields to detect same story from different sources)
+    logger.info("Pre-classifying signals for dedup...")
+    for signal in raw_signals:
+        # Add category if not present
+        if "category" not in signal:
+            signal["category"] = classify_signal(signal, config.keywords.categories)
+        # Add entity_ids if not present
+        if "entity_ids" not in signal:
+            signal["entity_ids"] = match_entities_in_signal(signal, config.keywords.entity_aliases)
+
     # Deduplicate signals (within-day + cross-day)
     logger.info("Deduplicating signals...")
     previous_signals = load_recent_signals(
         processed_dir=resolved_output,
         archive_dir=resolved_archive,
         current_date=target_date,
-        lookback_days=3,
+        # lookback_days defaults to 7 in dedup.py
     )
     raw_signals, dedup_stats = deduplicate_signals(raw_signals, previous_signals)
 

@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from analysis.dedup import (
-    DedupStats,
+    DEFAULT_LOOKBACK_DAYS,
+    TITLE_EXACT_THRESHOLD_EN,
+    TITLE_EXACT_THRESHOLD_ZH,
+    _contains_chinese,
+    _detect_language,
+    _extract_category,
+    _extract_entities,
     body_jaccard,
     deduplicate_signals,
     is_duplicate,
@@ -17,7 +21,6 @@ from analysis.dedup import (
     normalize_url,
     title_similarity,
 )
-
 
 # ── normalize_text ──────────────────────────────────────────────────────────
 
@@ -365,3 +368,184 @@ class TestDeduplicateSignals:
         result, stats = deduplicate_signals(signals, None)
         assert len(result) == 2
         assert stats.total_dropped == 0
+
+
+# ── Chinese language support ───────────────────────────────────────────────
+
+class TestChineseSupport:
+    def test_contains_chinese_true(self):
+        assert _contains_chinese("中国外交部发言人") is True
+        assert _contains_chinese("China 中国") is True
+
+    def test_contains_chinese_false(self):
+        assert _contains_chinese("China trade war") is False
+        assert _contains_chinese("") is False
+
+    def test_detect_language_chinese(self):
+        assert _detect_language("中国对加拿大实施制裁") == "zh"
+        assert _detect_language("China announces 中国宣布 new policy") == "zh"
+
+    def test_detect_language_english(self):
+        assert _detect_language("China announces new trade policy") == "en"
+        assert _detect_language("") == "en"
+
+    def test_chinese_title_lower_threshold(self):
+        """Chinese titles use 0.70 threshold vs 0.80 for English."""
+        assert TITLE_EXACT_THRESHOLD_ZH < TITLE_EXACT_THRESHOLD_EN
+        assert TITLE_EXACT_THRESHOLD_ZH == 0.70
+        assert TITLE_EXACT_THRESHOLD_EN == 0.80
+
+    def test_chinese_similar_titles_dedup(self):
+        """Chinese titles with ~75% similarity should dedup."""
+        a = {"title": "中国外交部就加拿大涉台言论表示强烈不满"}
+        b = {"title": "中国外交部就加拿大涉台言论表态"}
+        is_dup, reason = is_duplicate(a, b)
+        # These should match under the lower Chinese threshold
+        assert is_dup is True
+        assert reason == "title"
+
+    def test_chinese_different_stories_kept(self):
+        """Genuinely different Chinese stories should be kept."""
+        a = {"title": "中国外交部就加拿大涉台言论表态"}
+        b = {"title": "商务部公布对加拿大油菜籽反倾销调查结果"}
+        is_dup, _ = is_duplicate(a, b)
+        assert is_dup is False
+
+    def test_chinese_stop_words_excluded(self):
+        """Chinese stop words should not inflate Jaccard similarity."""
+        # Same substantive content with different function words
+        a = "中国政府宣布对加拿大实施新的贸易制裁措施"
+        b = "中国政府宣布将对加拿大实施新贸易制裁"
+        score = body_jaccard(a, b)
+        # Should have high overlap on content words
+        assert score >= 0.40
+
+    def test_mixed_language_dedup(self):
+        """English headline vs Chinese translation should not false-positive."""
+        a = {"title": "China announces new tariffs on Canadian canola"}
+        b = {"title": "中国宣布对加拿大油菜籽加征关税"}
+        is_dup, _ = is_duplicate(a, b)
+        # Different scripts, shouldn't match on title alone
+        # (would need URL or body match)
+        assert is_dup is False
+
+
+# ── Entity-based deduplication ─────────────────────────────────────────────
+
+class TestEntityDedup:
+    def test_extract_entities_raw_format(self):
+        signal = {"entities": ["xi_jinping", "mfa", "canada"]}
+        entities = _extract_entities(signal)
+        assert entities == {"xi_jinping", "mfa", "canada"}
+
+    def test_extract_entities_processed_format(self):
+        signal = {"entity_ids": ["huawei", "mofcom"]}
+        entities = _extract_entities(signal)
+        assert entities == {"huawei", "mofcom"}
+
+    def test_extract_entities_dict_format(self):
+        signal = {"entities": [{"id": "taiwan"}, {"id": "pla"}]}
+        entities = _extract_entities(signal)
+        assert entities == {"taiwan", "pla"}
+
+    def test_extract_entities_empty(self):
+        assert _extract_entities({}) == set()
+        assert _extract_entities({"entities": []}) == set()
+
+    def test_extract_category(self):
+        assert _extract_category({"category": "diplomatic"}) == "diplomatic"
+        assert _extract_category({"category": {"en": "Trade", "zh": "贸易"}}) == "trade"
+        assert _extract_category({}) == ""
+
+    def test_entity_body_dedup(self):
+        """Same entities + same category + similar body = duplicate."""
+        shared_body = (
+            "The Chinese Ministry of Foreign Affairs spokesperson criticized "
+            "Canada's stance on Taiwan, calling it interference in internal affairs. "
+            "Wang Yi met with Canadian officials to discuss bilateral relations."
+        )
+        a = {
+            "title": "MFA slams Canada over Taiwan stance",
+            "body_text": shared_body,
+            "entities": ["mfa", "wang_yi", "taiwan"],
+            "category": "diplomatic",
+        }
+        b = {
+            "title": "China foreign ministry criticizes Ottawa",
+            "body": shared_body[:200],  # Similar but not identical body
+            "entity_ids": ["mfa", "wang_yi", "taiwan"],
+            "category": "diplomatic",
+        }
+        is_dup, reason = is_duplicate(a, b)
+        assert is_dup is True
+        assert reason == "entity+body"
+
+    def test_entity_dedup_requires_category_match(self):
+        """Same entities but different category should not dedup."""
+        a = {
+            "title": "Huawei announces new 5G chip",
+            "body_text": "Huawei unveiled its latest semiconductor technology.",
+            "entities": ["huawei"],
+            "category": "technology",
+        }
+        b = {
+            "title": "Huawei faces new trade restrictions",
+            "body": "Huawei was added to the export control list.",
+            "entity_ids": ["huawei"],
+            "category": "trade",
+        }
+        is_dup, reason = is_duplicate(a, b)
+        # Different categories, different stories
+        assert is_dup is False
+
+    def test_entity_dedup_requires_body_overlap(self):
+        """Same entities + category but different body = not duplicate."""
+        a = {
+            "title": "MOFCOM announces export controls",
+            "body_text": (
+                "The Ministry of Commerce published new regulations on "
+                "rare earth exports effective immediately."
+            ),
+            "entities": ["mofcom", "rare_earths"],
+            "category": "trade",
+        }
+        b = {
+            "title": "MOFCOM holds press conference",
+            "body": (
+                "The Ministry of Commerce discussed ongoing trade "
+                "negotiations with European partners on steel tariffs."
+            ),
+            "entity_ids": ["mofcom"],
+            "category": "trade",
+        }
+        is_dup, _ = is_duplicate(a, b)
+        # Same MOFCOM entity but completely different topic
+        assert is_dup is False
+
+    def test_entity_dedup_stats(self):
+        """Entity+body dedup should be tracked in stats."""
+        signals = [
+            {
+                "title": "MFA criticizes Canada",
+                "body_text": "Spokesperson condemned interference in Taiwan affairs.",
+                "entities": ["mfa", "taiwan"],
+                "category": "diplomatic",
+            },
+            {
+                "title": "China foreign ministry on Canada",
+                "body_text": "Spokesperson condemned interference in Taiwan affairs.",
+                "entities": ["mfa", "taiwan"],
+                "category": "diplomatic",
+            },
+        ]
+        result, stats = deduplicate_signals(signals)
+        assert len(result) == 1
+        assert stats.dropped_entity_body == 1
+
+
+# ── Lookback configuration ─────────────────────────────────────────────────
+
+class TestLookbackConfig:
+    def test_default_lookback_is_seven_days(self):
+        """Default lookback should be 7 days for longer memory."""
+        assert DEFAULT_LOOKBACK_DAYS == 7

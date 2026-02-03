@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from analysis.cli import main
+from analysis.cli import _score_sentence, _summarize_body, main
 
 
 @pytest.fixture
@@ -255,3 +255,73 @@ class TestHelpOutput:
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
         assert "0.1.0" in result.output
+
+
+class TestScoreSentence:
+    """Tests for _score_sentence title-relevance scoring."""
+
+    def test_relevant_sentence_outscores_data_heavy_irrelevant(self) -> None:
+        title = "India buying Venezuelan oil"
+        relevant = (
+            "India has increased purchases of Venezuelan crude"
+            " by 32%, importing 200,000 barrels per day."
+        )
+        irrelevant = (
+            "An armada of 12 warships is heading toward Iran,"
+            " with 3,500 troops deployed across 5 countries."
+        )
+        score_relevant = _score_sentence(relevant, title, 0, 2)
+        score_irrelevant = _score_sentence(irrelevant, title, 1, 2)
+        assert score_relevant > score_irrelevant
+
+    def test_zero_overlap_penalty_applied(self) -> None:
+        title = "China imposes trade sanctions"
+        with_overlap = "China announced new trade restrictions on imports."
+        without_overlap = "The committee released a report on fiscal policy."
+        score_with = _score_sentence(with_overlap, title, 0, 2)
+        score_without = _score_sentence(without_overlap, title, 1, 2)
+        assert score_with > score_without
+
+    def test_no_penalty_when_title_has_no_matchable_words(self) -> None:
+        title = "Oil"  # no words >= 4 chars
+        sent = "The committee released a report on fiscal policy trends."
+        score = _score_sentence(sent, title, 0, 1)
+        # Without penalty, base score should not be dragged negative
+        assert score >= -1.0  # only short-sentence penalty possible
+
+    def test_summarize_body_prefers_relevant_content(self) -> None:
+        title = "India buying Venezuelan oil"
+        body = (
+            "India has been buying Venezuelan crude oil at steep discounts "
+            "under a complex arrangement involving intermediary traders, "
+            "increasing total imports by 32% over the past quarter "
+            "according to shipping data tracked by energy analysts. "
+            "An armada of 12 warships, 45 aircraft, and 3,500 troops were "
+            "deployed across 5 countries near Iran in a major military "
+            "exercise that lasted several weeks. "
+            "Officials confirmed that India will keep buying Venezuelan "
+            "oil as part of its energy diversification strategy despite "
+            "strong Western objections. "
+            "Meanwhile a separate naval drill involved 8 destroyers and "
+            "2 aircraft carriers conducting operations in the Persian Gulf "
+            "with coalition forces from 7 nations. "
+            "The Venezuelan government has welcomed India as a key buyer, "
+            "with bilateral oil trade now exceeding four billion dollars "
+            "annually. "
+            "Pentagon officials said the military exercises were "
+            "pre-planned and unrelated to any current geopolitical "
+            "tensions in the region."
+        )
+        summary = _summarize_body(body, title)
+        assert "India" in summary
+        assert "armada" not in summary
+
+    def test_summarize_body_fallback_when_no_overlap(self) -> None:
+        title = "Xi PM"  # no words >= 4 chars
+        body = (
+            "The two leaders met at the summit to discuss bilateral trade "
+            "and regional security. Officials announced a joint communique "
+            "on economic cooperation between the nations."
+        )
+        summary = _summarize_body(body, title)
+        assert len(summary) > 0

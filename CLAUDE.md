@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**cc-analysis** is a deterministic, rule-based analysis engine for the China Compass pipeline. It transforms raw signal data into structured briefings with classified signals, a composite tension index, entity tracking, and situation monitoring. Zero LLM inference — every classification is keyword-driven or numeric for reproducibility.
+**cc-analysis** is a hybrid rule-based + LLM analysis engine for the China Compass pipeline. It transforms raw signal data into structured briefings with classified signals, a composite tension index, entity tracking, and situation monitoring. Classification is keyword-driven for reproducibility; LLM (local Qwen2.5 via ollama) handles translation and summarization of high-priority signals.
 
 ## Architecture
 
@@ -13,15 +13,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **Load raw signals** from `cc-data/raw/{date}/` — handles fetcher envelope format, extracts nested arrays
 2. **Load supplementary data** — trade (statcan), market (yahoo_finance), parliament
 3. **Filter & prioritize** — recency gate (adaptive 72h–168h window until ≥10 signals), China-relevance check, bilateral prioritization, source diversification (round-robin)
-4. **Deduplicate** — three-tier: URL exact match → title similarity ≥0.80 → title 0.50–0.80 AND body Jaccard ≥0.60
-5. **Classify** — source tier mapping → category (8 categories via keyword scoring) → severity (multi-factor score)
-6. **Compute trends** — day-over-day comparison from previous briefing
-7. **Compute tension index** — weighted composite (0–10 scale) across 6 components
-8. **Match entities** — scan signals against `entity_aliases.yaml` dictionary (21 entities)
-9. **Track active situations** — trigger keyword matching against 6 known situations
-10. **Generate supplementary content** — volume number, today's number, quote of the day
-11. **Assemble & validate** — JSON Schema validation with local `$ref` resolution
-12. **Write output** — `processed/{date}/briefing.json` + `processed/latest/` + `archive/daily/{date}/`
+4. **Pre-classify** — add category and entity_ids to signals before dedup (enables entity-based dedup)
+5. **Deduplicate** — four-tier with 7-day lookback:
+   - Tier 1: URL exact match
+   - Tier 2: Title similarity ≥0.80 (EN) or ≥0.70 (ZH — shorter headlines)
+   - Tier 3: Title 0.50–0.80 AND body Jaccard ≥0.60
+   - Tier 4: Same entities + same category + body Jaccard ≥0.50 (catches same story from different sources)
+6. **Classify** — source tier mapping → category (8 categories via keyword scoring) → severity (multi-factor score)
+7. **Normalize & summarize** — convert to bilingual schema; LLM summarization for critical/high severity signals
+8. **Translate** — LLM translation (EN↔ZH) with MyMemory API fallback
+9. **Compute trends** — day-over-day comparison from previous briefing
+10. **Compute tension index** — weighted composite (0–10 scale) across 6 components
+11. **Match entities** — scan signals against `entity_aliases.yaml` dictionary (21 entities)
+12. **Track active situations** — trigger keyword matching against 6 known situations
+13. **Generate supplementary content** — volume number, today's number, quote of the day
+14. **Assemble & validate** — JSON Schema validation with local `$ref` resolution
+15. **Write output** — `processed/{date}/briefing.json` + `processed/latest/` + `archive/daily/{date}/`
 
 ### Classification Details
 
@@ -79,8 +86,10 @@ Config hierarchy: `AppConfig` → `PathsConfig`, `TensionConfig`, `LoggingConfig
 - Keyword matching is case-insensitive for English, exact substring for Chinese
 - All processed text fields use bilingual objects `{"en": "...", "zh": "..."}`
 - Component scores are integers; composite uses unrounded floats before final 1-decimal rounding
-- Dedup stop words exclude common EN words from Jaccard body comparison
-- Translation uses MyMemory free API; gracefully returns original text on failure
+- Dedup stop words exclude common EN words AND Chinese function words (的, 了, 是, etc.) from Jaccard comparison
+- Chinese text tokenized by character (no word boundaries); English by 3+ char words
+- Translation: LLM primary (local ollama) → MyMemory fallback → original text on failure
+- LLM config via env vars: `OLLAMA_URL`, `OLLAMA_API_KEY`, `OLLAMA_MODEL` (default: qwen2.5:3b-instruct-q4_K_M)
 - Empty raw directory is handled gracefully (empty signal list with warning)
 - If strict validation is on and fails, raises `ClickException` (non-zero exit)
 - Ruff config: line-length 100, target Python 3.12, rules E/F/I/N/W/UP
