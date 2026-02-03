@@ -383,6 +383,21 @@ def _summarize_body(text: str, title: str, max_chars: int = 450) -> str:
 
     # Reassemble in original order
     selected.sort()
+
+    # Coherence check: if selected sentences are scattered (not from the lede),
+    # fall back to the first 2-3 sentences which usually contain the key point
+    if selected and selected[0] > 2:
+        # None of the selected sentences are from the opening - likely narrative article
+        # Fall back to lede sentences
+        lede_summary = ""
+        for sent in sentences[:3]:
+            if len(lede_summary) + len(sent) + 1 <= max_chars:
+                lede_summary += (" " if lede_summary else "") + sent
+            else:
+                break
+        if lede_summary:
+            return lede_summary
+
     return " ".join(sentences[i] for i in selected)
 
 
@@ -412,8 +427,14 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     if raw_body and not isinstance(raw_body, dict):
         s["body"] = _summarize_body(raw_body, title_str)
 
-        # LLM-enhanced summary for critical/high severity signals
-        if s.get("severity") in ("critical", "high"):
+        # LLM-enhanced summary for:
+        # - critical/high/elevated severity signals
+        # - long-form articles (>1500 chars) which are often narrative/analysis
+        use_llm = (
+            s.get("severity") in ("critical", "high", "elevated")
+            or len(raw_body) > 1500
+        )
+        if use_llm:
             llm_result = llm_summarize(raw_body, title_str)
             if llm_result:
                 s["body"] = llm_result
