@@ -14,9 +14,31 @@ import time
 
 import requests
 
-from analysis.llm import llm_translate
+from analysis.llm import llm_translate, llm_translate_strict
 
 logger = logging.getLogger(__name__)
+
+
+def _contains_untranslated_english(text: str, threshold: float = 0.15) -> bool:
+    """Detect if Chinese text contains significant untranslated English.
+
+    Args:
+        text: Text to check (expected to be Chinese).
+        threshold: Maximum allowed ratio of ASCII letters to total characters.
+
+    Returns:
+        True if text likely contains untranslated English fragments.
+    """
+    if not text:
+        return False
+    # Count ASCII letters (a-z, A-Z) - these shouldn't appear in Chinese
+    ascii_letters = sum(1 for c in text if c.isascii() and c.isalpha())
+    # Exclude spaces and punctuation from total
+    total_chars = sum(1 for c in text if not c.isspace() and c not in ".,;:!?\"'()[]{}—–-")
+    if total_chars == 0:
+        return False
+    ratio = ascii_letters / total_chars
+    return ratio > threshold
 
 _BASE_URL = "https://api.mymemory.translated.net/get"
 
@@ -66,6 +88,9 @@ def _translate_batch(
 ) -> list[str]:
     """Translate a list of texts. LLM primary, MyMemory fallback.
 
+    For English-to-Chinese translations, validates output for untranslated
+    English fragments and retries with stricter prompts if detected.
+
     Args:
         texts: Texts to translate.
         source_lang: Source language code ("en" or "zh").
@@ -81,12 +106,36 @@ def _translate_batch(
 
     translated = list(texts)  # copy
     llm_success = 0
+    llm_strict_success = 0
     mm_success = 0
+    check_english = target_lang == "zh"  # Only check for EN->ZH translations
 
     for idx, text in non_empty:
         # Try LLM first
         result = llm_translate(text, source_lang, target_lang)
         if result:
+            # For Chinese output, check for untranslated English
+            if check_english and _contains_untranslated_english(result):
+                logger.debug(
+                    "LLM translation contains English fragments, retrying strict: %.50s",
+                    result,
+                )
+                # Try strict translation
+                strict_result = llm_translate_strict(text, source_lang, target_lang)
+                if strict_result and not _contains_untranslated_english(strict_result):
+                    translated[idx] = strict_result
+                    llm_strict_success += 1
+                    continue
+                # Try MyMemory as last resort
+                mm_result = _mymemory_translate_one(text, mymemory_langpair)
+                if mm_result and not _contains_untranslated_english(mm_result):
+                    translated[idx] = mm_result
+                    mm_success += 1
+                    continue
+                # Use original LLM result if all else fails
+                translated[idx] = result
+                llm_success += 1
+                continue
             translated[idx] = result
             llm_success += 1
             continue
@@ -102,14 +151,16 @@ def _translate_batch(
 
     total = len(non_empty)
     logger.info(
-        "Translation %s→%s: %d/%d via LLM, %d/%d via MyMemory, %d/%d fallback",
+        "Translation %s->%s: %d/%d LLM, %d/%d LLM-strict, %d/%d MyMemory, %d/%d fallback",
         source_lang,
         target_lang,
         llm_success,
         total,
+        llm_strict_success,
+        total,
         mm_success,
         total,
-        total - llm_success - mm_success,
+        total - llm_success - llm_strict_success - mm_success,
         total,
     )
     return translated

@@ -89,7 +89,43 @@ def llm_translate(text: str, source_lang: str, target_lang: str) -> str | None:
     return None
 
 
-def llm_summarize(text: str, title: str, max_words: int = 80) -> str | None:
+def llm_translate_strict(text: str, source_lang: str, target_lang: str) -> str | None:
+    """Translate text via local LLM with strict instructions to translate ALL words.
+
+    Use this when the standard translation leaves English words untranslated.
+
+    Args:
+        text: Text to translate.
+        source_lang: Source language code (e.g. "zh", "en").
+        target_lang: Target language code (e.g. "en", "zh").
+
+    Returns:
+        Translated text, or None on failure.
+    """
+    if not text or not text.strip():
+        return None
+
+    lang_names = {"en": "English", "zh": "Simplified Chinese"}
+    src_name = lang_names.get(source_lang, source_lang)
+    tgt_name = lang_names.get(target_lang, target_lang)
+
+    prompt = (
+        f"Translate the following text from {src_name} to {tgt_name}.\n\n"
+        f"CRITICAL INSTRUCTIONS:\n"
+        f"1. Translate EVERY word including proper nouns, titles, and quoted words\n"
+        f"2. Do NOT leave any {src_name} words untranslated\n"
+        f"3. For names of people, use standard {tgt_name} transliterations\n"
+        f"4. Return ONLY the translation, nothing else\n\n"
+        f"Text to translate:\n{text}"
+    )
+
+    result = _call_ollama(prompt)
+    if result and result != text:
+        return result
+    return None
+
+
+def llm_summarize(text: str, title: str, max_words: int = 100) -> str | None:
     """Summarize article text via local LLM.
 
     Args:

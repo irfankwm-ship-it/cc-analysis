@@ -549,7 +549,7 @@ def _is_list_headline(title: str) -> bool:
     return bool(re.search(r'\b\d+\s+(?:way|reason|thing|tip|step|method|sign|trend|takeaway)', title, re.I))
 
 
-def _summarize_body(text: str, title: str, max_chars: int = 450) -> str:
+def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
     """Produce an extractive summary from article body text.
 
     For list-style articles (e.g. "5 ways"), extracts headings/items
@@ -644,11 +644,25 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
         title_str = title_str.get("en", "")
     raw_body = s.pop("body_text", "") or s.pop("body_snippet", "") or s.get("body", "")
 
+    # Preserve original Chinese content before translation (avoids round-trip quality loss)
+    preserved_zh_title = None
+    preserved_zh_body = None
+
     # Translate Chinese source to English before summarizing
     if source_lang == "zh" and raw_body and not isinstance(raw_body, dict):
+        # Store original Chinese for later use (avoid ZH->EN->ZH round-trip)
+        preserved_zh_title = title_str
+        preserved_zh_body = raw_body[:2000]  # Keep first 2000 chars of original
+        # Translate to English for summarization
         raw_body = translate_to_english([raw_body])[0]
         if title_str:
             title_str = translate_to_english([title_str])[0]
+
+    # Store preserved content for _translate_signals_batch to use
+    if preserved_zh_title:
+        s["_preserved_zh_title"] = preserved_zh_title
+    if preserved_zh_body:
+        s["_preserved_zh_body"] = preserved_zh_body
 
     if raw_body and not isinstance(raw_body, dict):
         s["body"] = _summarize_body(raw_body, title_str)
@@ -721,22 +735,46 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     )
     s["original_zh_source"] = is_chinese
 
+    # Store original source URL for Chinese sources (for "view original" links)
+    if is_chinese:
+        s["original_zh_url"] = signal.get("url", "") or signal.get("source_url", "")
+
     return s
 
 
 def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate signal titles and bodies to create bilingual content.
 
+    For Chinese-source signals: uses preserved original Chinese (avoids round-trip).
     For English-source signals: translates EN -> ZH.
-    For Chinese-source signals: translates EN summary back to ZH.
 
-    Truncates bodies to 300 chars before translation to conserve quota.
+    Truncates bodies to 500 chars before translation.
     Uses LLM primary with MyMemory fallback.
     """
     en_to_zh_texts: list[str] = []
     en_to_zh_map: list[tuple[int, str]] = []  # (signal_idx, field)
+    preserved_count = 0
 
     for i, s in enumerate(signals):
+        # Check for preserved Chinese content (from Chinese-source signals)
+        preserved_title = s.pop("_preserved_zh_title", None)
+        preserved_body = s.pop("_preserved_zh_body", None)
+
+        if preserved_title or preserved_body:
+            # Use preserved original Chinese instead of round-trip translation
+            if preserved_title:
+                s["title"]["zh"] = preserved_title
+            if preserved_body:
+                # Summarize preserved Chinese body to match English summary length
+                zh_summary = _summarize_body(preserved_body, preserved_title or "", max_chars=500)
+                if zh_summary:
+                    s["body"]["zh"] = zh_summary
+                else:
+                    s["body"]["zh"] = preserved_body[:500]
+            preserved_count += 1
+            continue
+
+        # For English-source signals, queue for translation
         title_en = s.get("title", {}).get("en", "")
         body_en = s.get("body", {}).get("en", "")
 
@@ -744,8 +782,8 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
             en_to_zh_texts.append(title_en)
             en_to_zh_map.append((i, "title"))
         if body_en:
-            truncated = body_en[:300]
-            if len(body_en) > 300:
+            truncated = body_en[:500]  # Increased from 300
+            if len(body_en) > 500:
                 truncated = truncated.rsplit(" ", 1)[0] + "..."
             en_to_zh_texts.append(truncated)
             en_to_zh_map.append((i, "body"))
@@ -755,6 +793,11 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
         for (sig_idx, field), zh_text in zip(en_to_zh_map, translated):
             signals[sig_idx][field]["zh"] = zh_text
 
+    logger.info(
+        "Translation batch: %d preserved Chinese, %d translated EN->ZH",
+        preserved_count,
+        len(en_to_zh_texts),
+    )
     return signals
 
 
