@@ -51,10 +51,13 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
         "en": [
             "CSIS", "Sinocism", "China Brief", "MERICS", "OSINT",
             "The Diplomat", "Asia Times",
+            "Macdonald-Laurier Institute", "MacDonald-Laurier",
+            "Asia Pacific Foundation", "China Institute", "CGAI",
         ],
         "zh": [
             "\u52A0\u62FF\u5927\u5B89\u5168\u60C5\u62A5\u5C40",
             "\u5F00\u6E90\u60C5\u62A5",
+            "麦克唐纳-劳里埃研究所",
         ],
     },
     "media": {
@@ -70,11 +73,21 @@ SOURCE_TIERS: dict[str, dict[str, list[str]]] = {
             "SCMP Tech",
             "SCMP Geopolitics",
             "BBC",
+            "Caixin", "Caixin Global",
+            "The Paper", "Sixth Tone",
+            "Jiemian",
         ],
         "zh": [
             "\u73AF\u7403\u90AE\u62A5",
             "CBC",
             "\u5357\u534E\u65E9\u62A5",
+            "财新网", "财新",
+            "澎湃新闻",
+            "界面新闻",
+            "亿邦动力",
+            "中央社",
+            "自由時報",
+            "香港電台",
         ],
     },
 }
