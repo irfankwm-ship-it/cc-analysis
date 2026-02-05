@@ -37,14 +37,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Thresholds — tuned for news headline lengths (10-20 words)
 # ---------------------------------------------------------------------------
-TITLE_EXACT_THRESHOLD_EN = 0.80   # Very likely same headline, minor edit
+TITLE_EXACT_THRESHOLD_EN = 0.85   # Very likely same headline, minor edit
 TITLE_EXACT_THRESHOLD_ZH = 0.70   # Lower for Chinese (shorter headlines)
 TITLE_FUZZY_LOW = 0.50            # Worth checking body overlap
 BODY_JACCARD_THRESHOLD = 0.60     # Same substantive content
 ENTITY_BODY_JACCARD_THRESHOLD = 0.50  # Lower threshold when entities match
 
 # Default lookback for cross-day deduplication
-DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_LOOKBACK_DAYS = 3
 
 # Stop words excluded from Jaccard body comparison.  Common words that
 # inflate similarity without indicating the same story.

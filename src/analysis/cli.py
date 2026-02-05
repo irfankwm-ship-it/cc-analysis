@@ -806,7 +806,7 @@ def _filter_and_prioritize_signals(
     signals: list[dict[str, Any]],
     target_date: str,
     min_signals: int = 10,
-    max_signals: int = 40,
+    max_signals: int = 75,
 ) -> list[dict[str, Any]]:
     """Filter signals to recent ones and prioritize bilateral news.
 

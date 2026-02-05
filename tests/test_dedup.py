@@ -390,10 +390,10 @@ class TestChineseSupport:
         assert _detect_language("") == "en"
 
     def test_chinese_title_lower_threshold(self):
-        """Chinese titles use 0.70 threshold vs 0.80 for English."""
+        """Chinese titles use 0.70 threshold vs 0.85 for English."""
         assert TITLE_EXACT_THRESHOLD_ZH < TITLE_EXACT_THRESHOLD_EN
         assert TITLE_EXACT_THRESHOLD_ZH == 0.70
-        assert TITLE_EXACT_THRESHOLD_EN == 0.80
+        assert TITLE_EXACT_THRESHOLD_EN == 0.85  # Relaxed for more signal throughput
 
     def test_chinese_similar_titles_dedup(self):
         """Chinese titles with ~75% similarity should dedup."""
@@ -546,6 +546,6 @@ class TestEntityDedup:
 # ── Lookback configuration ─────────────────────────────────────────────────
 
 class TestLookbackConfig:
-    def test_default_lookback_is_seven_days(self):
-        """Default lookback should be 7 days for longer memory."""
-        assert DEFAULT_LOOKBACK_DAYS == 7
+    def test_default_lookback_is_three_days(self):
+        """Default lookback reduced to 3 days for more signal throughput."""
+        assert DEFAULT_LOOKBACK_DAYS == 3
