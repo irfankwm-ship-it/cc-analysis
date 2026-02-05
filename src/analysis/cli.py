@@ -804,11 +804,23 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     return s
 
 
+def _has_english_fragments(text: str, threshold: float = 0.15) -> bool:
+    """Check if Chinese text contains significant English fragments."""
+    if not text:
+        return False
+    ascii_letters = sum(1 for c in text if c.isascii() and c.isalpha())
+    total_chars = sum(1 for c in text if not c.isspace())
+    if total_chars == 0:
+        return False
+    return (ascii_letters / total_chars) > threshold
+
+
 def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate signal titles and bodies to create bilingual content.
 
     For Chinese-source signals: uses preserved original Chinese (avoids round-trip).
     For English-source signals: translates EN -> ZH.
+    For existing signals with bad translations: re-translates to fix quality.
 
     Truncates bodies to 500 chars before translation.
     Uses LLM primary with MyMemory fallback.
@@ -816,6 +828,7 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
     en_to_zh_texts: list[str] = []
     en_to_zh_map: list[tuple[int, str]] = []  # (signal_idx, field)
     preserved_count = 0
+    retranslate_count = 0
 
     for i, s in enumerate(signals):
         # Check for preserved Chinese content (from Chinese-source signals)
@@ -836,9 +849,38 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
             preserved_count += 1
             continue
 
-        # For English-source signals, queue for translation
+        # Check if existing Chinese translations have quality issues (English fragments)
+        # This catches signals from dedup that had bad translations
+        title_zh = s.get("title", {}).get("zh", "")
+        body_zh = s.get("body", {}).get("zh", "")
         title_en = s.get("title", {}).get("en", "")
         body_en = s.get("body", {}).get("en", "")
+
+        needs_retranslate = False
+        if title_zh and _has_english_fragments(title_zh):
+            needs_retranslate = True
+        if body_zh and _has_english_fragments(body_zh):
+            needs_retranslate = True
+
+        if needs_retranslate:
+            # Queue for re-translation to fix quality issues
+            retranslate_count += 1
+            if title_en:
+                en_to_zh_texts.append(title_en)
+                en_to_zh_map.append((i, "title"))
+            if body_en:
+                truncated = body_en[:500]
+                if len(body_en) > 500:
+                    truncated = truncated.rsplit(" ", 1)[0] + "..."
+                en_to_zh_texts.append(truncated)
+                en_to_zh_map.append((i, "body"))
+            continue
+
+        # Skip if already has good Chinese translations (from dedup)
+        if title_zh and body_zh:
+            continue
+
+        # For English-source signals without Chinese, queue for translation
 
         if title_en:
             en_to_zh_texts.append(title_en)
@@ -855,10 +897,12 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
         for (sig_idx, field), zh_text in zip(en_to_zh_map, translated):
             signals[sig_idx][field]["zh"] = zh_text
 
+    new_count = len(en_to_zh_texts) - retranslate_count
     logger.info(
-        "Translation batch: %d preserved Chinese, %d translated EN->ZH",
+        "Translation batch: %d preserved, %d new, %d re-translated for quality",
         preserved_count,
-        len(en_to_zh_texts),
+        new_count,
+        retranslate_count,
     )
     return signals
 
