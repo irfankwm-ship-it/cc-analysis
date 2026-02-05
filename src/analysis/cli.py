@@ -348,15 +348,90 @@ def _is_chinese_source(signal: dict[str, Any]) -> bool:
     return False
 
 
-def _generate_perspectives(category: str, is_chinese: bool) -> dict[str, Any]:
-    """Generate dual-perspective content for a signal."""
-    canada = _CANADA_PERSPECTIVE.get(category, _CANADA_PERSPECTIVE["diplomatic"])
-    china = _CHINA_PERSPECTIVE.get(category, _CHINA_PERSPECTIVE["diplomatic"])
-    return {
-        "canada": canada,
-        "china": china,
-        "primary_source": {"en": "Chinese", "zh": "中方"} if is_chinese else {"en": "Western", "zh": "西方"},
+def _extract_quote(text: str, quote_indicators: list[str]) -> str | None:
+    """Try to extract a relevant quote from article text.
+
+    Looks for sentences containing quote indicators like 'said', 'stated',
+    'according to', Chinese quote marks, etc.
+    """
+    if not text:
+        return None
+
+    # Split into sentences
+    sentences = re.split(r'[.!?。！？]', text)
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) < 30 or len(sentence) > 300:
+            continue
+
+        # Check for quote indicators
+        for indicator in quote_indicators:
+            if indicator in sentence.lower():
+                # Clean up the sentence
+                clean = re.sub(r'\s+', ' ', sentence).strip()
+                if clean:
+                    return clean
+
+    return None
+
+
+def _generate_perspectives(
+    category: str,
+    is_chinese: bool,
+    body_text: str = "",
+    source_name: str = "",
+) -> dict[str, Any]:
+    """Generate dual-perspective content for a signal.
+
+    First attempts to extract actual quotes from the article body.
+    Falls back to category-based templates if no quotes found.
+    """
+    # Quote indicators to look for
+    en_quote_indicators = [
+        "said", "stated", "according to", "told reporters",
+        "announced", "emphasized", "warned", "noted",
+        "ministry", "spokesman", "official", "government",
+    ]
+    zh_quote_indicators = [
+        "表示", "指出", "强调", "称", "说", "认为",
+        "发言人", "外交部", "国务院", "官员",
+        '"',  # ASCII double quote
+        "\u201c",  # Chinese left double quote "
+        "\u300c",  # Chinese corner bracket 「
+    ]
+
+    # Try to extract actual quotes
+    extracted_quote = None
+    if body_text:
+        indicators = zh_quote_indicators if is_chinese else en_quote_indicators
+        extracted_quote = _extract_quote(body_text, indicators)
+
+    # Get template perspectives as fallback
+    canada_template = _CANADA_PERSPECTIVE.get(category, _CANADA_PERSPECTIVE["diplomatic"])
+    china_template = _CHINA_PERSPECTIVE.get(category, _CHINA_PERSPECTIVE["diplomatic"])
+
+    # Build perspectives
+    result: dict[str, Any] = {
+        "primary_source": {"en": "Chinese media", "zh": "中方媒体"} if is_chinese else {"en": "Western media", "zh": "西方媒体"},
     }
+
+    # If we have an extracted quote from a Chinese source, use it for Beijing perspective
+    if extracted_quote and is_chinese:
+        result["china"] = {"en": extracted_quote, "zh": extracted_quote}
+        result["china_source"] = {"en": source_name, "zh": source_name}
+        result["canada"] = canada_template
+    # If we have an extracted quote from Western source, use it for Canada perspective
+    elif extracted_quote and not is_chinese:
+        result["canada"] = {"en": extracted_quote, "zh": extracted_quote}
+        result["canada_source"] = {"en": source_name, "zh": source_name}
+        result["china"] = china_template
+    # Fall back to templates
+    else:
+        result["canada"] = canada_template
+        result["china"] = china_template
+
+    return result
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -631,8 +706,19 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
             imp["what_to_watch"] = _to_bilingual(imp["what_to_watch"])
 
     # Add dual perspectives (Canadian and Beijing viewpoints)
+    # Try to extract actual quotes from article body for more authentic perspectives
     is_chinese = _is_chinese_source(signal)
-    s["perspectives"] = _generate_perspectives(s.get("category", "diplomatic"), is_chinese)
+    body_for_quotes = signal.get("body_text", "") or signal.get("body_snippet", "")
+    source_name = signal.get("source", "")
+    if isinstance(source_name, dict):
+        source_name = source_name.get("en", "") or source_name.get("zh", "")
+
+    s["perspectives"] = _generate_perspectives(
+        category=s.get("category", "diplomatic"),
+        is_chinese=is_chinese,
+        body_text=body_for_quotes,
+        source_name=source_name,
+    )
     s["original_zh_source"] = is_chinese
 
     return s
@@ -641,7 +727,7 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
 def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate signal titles and bodies to create bilingual content.
 
-    For English-source signals: translates EN → ZH.
+    For English-source signals: translates EN -> ZH.
     For Chinese-source signals: translates EN summary back to ZH.
 
     Truncates bodies to 300 chars before translation to conserve quota.
