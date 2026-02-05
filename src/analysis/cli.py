@@ -556,6 +556,58 @@ def _is_list_headline(title: str) -> bool:
     return bool(re.search(list_pat, title, re.I))
 
 
+_BOILERPLATE_PATTERNS = [
+    # Privacy/cookie notices
+    r"(?:our |the )?privacy (?:statement|policy|notice)",
+    r"cookie (?:policy|notice|consent)",
+    r"by continuing to (?:browse|use|visit)",
+    r"you agree to (?:our |the )?use of cookies",
+    r"revised privacy policy",
+    r"terms of (?:use|service)",
+    # Footer/navigation
+    r"choose your language",
+    r"select (?:your )?language",
+    r"subscribe to (?:our )?newsletter",
+    r"sign up for (?:our )?newsletter",
+    r"follow us on",
+    r"share this (?:article|story)",
+    # Chinese boilerplate
+    r"互联网新闻信息(?:服务)?许可证",
+    r"disinformation report hotline",
+    r"举报电话",
+    r"备案号",
+    r"ICP备",
+    # Copyright
+    r"(?:©|copyright|\(c\))\s*\d{4}",
+    r"all rights reserved",
+    # Ad/promo
+    r"click here to",
+    r"read more:",
+    r"related (?:articles?|stories?|news):",
+]
+
+
+def _remove_boilerplate(text: str) -> str:
+    """Remove website boilerplate text (privacy notices, footers, etc.)."""
+    if not text:
+        return text
+
+    sentences = _split_sentences(text)
+    cleaned = []
+
+    for sent in sentences:
+        s_lower = sent.lower()
+        is_boilerplate = False
+        for pattern in _BOILERPLATE_PATTERNS:
+            if re.search(pattern, s_lower, re.IGNORECASE):
+                is_boilerplate = True
+                break
+        if not is_boilerplate:
+            cleaned.append(sent)
+
+    return " ".join(cleaned)
+
+
 def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
     """Produce an extractive summary from article body text.
 
@@ -566,6 +618,9 @@ def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
     """
     if not text:
         return ""
+
+    # Remove website boilerplate first
+    text = _remove_boilerplate(text)
 
     # --- List-style articles: extract headings / items ---
     if _is_list_headline(title):
