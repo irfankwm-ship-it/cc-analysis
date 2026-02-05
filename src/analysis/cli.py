@@ -212,96 +212,109 @@ def _generate_implications(category: str, severity: str) -> dict[str, Any]:
 # Dual-Perspective Templates (Canada vs Beijing viewpoints)
 # ============================================================
 
+# Perspective templates — written for natural readability in both languages
+# Canadian perspective: policy implications, stakeholder impacts
+# Beijing perspective: based on common state media framing patterns
+
 _CANADA_PERSPECTIVE: dict[str, dict[str, str]] = {
     "diplomatic": {
-        "en": ("Ottawa views this as significant for bilateral relations. "
-               "Canadian officials will monitor for impacts on consular "
-               "services and diplomatic channels."),
-        "zh": "渥太华认为此事对双边关系有重要影响。加拿大官员将关注对领事服务和外交渠道的影响。",
+        "en": ("Ottawa is likely assessing implications for Canada-China "
+               "diplomatic engagement. Expect official statements to "
+               "balance economic interests with values-based concerns."),
+        "zh": "渥太华正在评估此事对加中外交关系的影响。预计官方声明将在经济利益与价值观之间寻求平衡。",
     },
     "trade": {
-        "en": ("Canadian exporters and importers should assess supply chain "
-               "exposure. This may affect market access or trade costs."),
-        "zh": "加拿大进出口商应评估供应链风险。这可能影响市场准入或贸易成本。",
+        "en": ("Canadian exporters should monitor for tariff adjustments "
+               "or market access changes. Supply chain diversification "
+               "discussions may accelerate."),
+        "zh": "加拿大出口商需关注关税调整或市场准入变化。供应链多元化讨论可能加速。",
     },
     "military": {
-        "en": ("Relevant to Canada's Indo-Pacific defence commitments. "
-               "DND and allied partners will be monitoring developments."),
-        "zh": "与加拿大印太防务承诺相关。国防部和盟友伙伴将密切关注事态发展。",
+        "en": ("This intersects with Canada's Indo-Pacific Strategy. "
+               "Defence officials and Five Eyes partners will be "
+               "tracking developments closely."),
+        "zh": "此事与加拿大印太战略相关。国防官员和五眼联盟伙伴将密切追踪事态发展。",
     },
     "technology": {
-        "en": ("May trigger review of research partnerships or technology "
-               "transfer arrangements with Chinese entities."),
-        "zh": "可能触发对与中国实体的研究合作或技术转让安排的审查。",
+        "en": ("Universities and research institutions with Chinese "
+               "partnerships should review compliance obligations. "
+               "Tech sector export controls may be affected."),
+        "zh": "与中国有合作的高校和研究机构应审查合规义务。科技行业出口管制可能受影响。",
     },
     "political": {
-        "en": ("Likely to feature in Parliamentary debate. Watch for "
-               "caucus positions and committee responses."),
-        "zh": "可能成为议会辩论议题。关注党团立场和委员会回应。",
+        "en": ("This will likely draw attention in Parliament. "
+               "Cross-party consensus on China policy remains fragile, "
+               "so watch for caucus positioning."),
+        "zh": "此事可能引发议会关注。各党在对华政策上的共识仍然脆弱，需关注各党团表态。",
     },
     "economic": {
-        "en": ("Canadian businesses with China exposure should monitor "
-               "for regulatory or market condition changes."),
-        "zh": "与中国有业务往来的加拿大企业应关注监管或市场条件变化。",
+        "en": ("Businesses with China revenue exposure should scenario-plan "
+               "for policy volatility. Investment screening rules may "
+               "come under review."),
+        "zh": "对华业务收入敞口较大的企业应制定政策波动情景预案。投资审查规则可能被重新审视。",
     },
     "social": {
-        "en": ("Relevant to Chinese-Canadian communities and academic "
-               "institutions with partnership arrangements."),
-        "zh": "与华裔加拿大人社区及有合作安排的学术机构相关。",
+        "en": ("Chinese-Canadian communities may face heightened attention. "
+               "Academic institutions should review partnership "
+               "arrangements and disclosure requirements."),
+        "zh": "华裔加拿大人社区可能面临更多关注。学术机构应审查合作安排和披露要求。",
     },
     "legal": {
-        "en": ("May have implications for sanctions compliance, export "
-               "controls, or legal proceedings involving Chinese parties."),
-        "zh": "可能影响制裁合规、出口管制或涉及中方当事人的法律程序。",
+        "en": ("Sanctions compliance and export control obligations may "
+               "be affected. Legal counsel should monitor for regulatory "
+               "guidance updates."),
+        "zh": "制裁合规和出口管制义务可能受影响。法律顾问应关注监管指引更新。",
     },
 }
 
 _CHINA_PERSPECTIVE: dict[str, dict[str, str]] = {
     "diplomatic": {
-        "en": ("Beijing frames this within its broader foreign policy "
-               "objectives. Official statements emphasize sovereignty "
-               "and mutual respect."),
-        "zh": "北京将此事置于更广泛的外交政策目标框架内。官方声明强调主权和相互尊重。",
+        "en": ("Beijing's Foreign Ministry typically frames such matters "
+               "as issues of sovereignty and mutual respect. Expect "
+               "statements urging 'non-interference in internal affairs.'"),
+        "zh": '外交部通常将此类问题定性为主权和相互尊重问题，呼吁"不干涉内政"。',
     },
     "trade": {
-        "en": ("Chinese state media emphasizes fair trade and opposes "
-               "what it terms 'protectionist measures'. Business interests "
-               "remain a priority."),
-        "zh": "中国官方媒体强调公平贸易，反对其所称的'保护主义措施'。商业利益仍是优先考量。",
+        "en": ("State media frames trade disputes as 'protectionism' by "
+               "foreign powers. Official line emphasizes China's "
+               "commitment to open markets and win-win cooperation."),
+        "zh": '官媒将贸易争端定性为外国的"保护主义"。官方立场强调中国坚持开放市场和互利共赢。',
     },
     "military": {
-        "en": ("PLA and state media frame regional security through the "
-               "lens of territorial integrity and opposition to "
-               "'external interference'."),
-        "zh": "解放军和官方媒体从领土完整和反对'外部干涉'的角度看待区域安全问题。",
+        "en": ("PLA-affiliated media frames regional presence as "
+               "'safeguarding territorial integrity.' Foreign military "
+               "activities are characterized as 'provocations.'"),
+        "zh": '军方媒体将区域军事存在定性为"维护领土完整"。外国军事活动被称为"挑衅行为"。',
     },
     "technology": {
-        "en": ("Beijing views technology restrictions as containment. "
-               "State policy emphasizes self-reliance and indigenous "
-               "innovation."),
-        "zh": "北京将技术限制视为遏制行为。国家政策强调自主可控和自主创新。",
+        "en": ("Official policy emphasizes 'technological self-reliance' "
+               "(科技自立自强). Export restrictions are framed as "
+               "'containment' targeting China's development."),
+        "zh": '官方政策强调"科技自立自强"。出口限制被定性为针对中国发展的"遏制"行为。',
     },
     "political": {
-        "en": ("Chinese officials reject 'interference in internal affairs' "
-               "and emphasize the Communist Party's governance model."),
-        "zh": "中国官员反对'干涉内政'，强调中国共产党的治理模式。",
+        "en": ("State media dismisses foreign criticism as 'interference "
+               "in internal affairs.' The Party's governance model is "
+               "presented as suited to China's conditions."),
+        "zh": '官媒将外国批评斥为"干涉内政"。党的治理模式被阐述为适合中国国情的选择。',
     },
     "economic": {
-        "en": ("State economic planning prioritizes stability and growth. "
-               "Policy signals focus on reform and opening up."),
-        "zh": "国家经济规划优先考虑稳定和增长。政策信号聚焦改革开放。",
+        "en": ("Economic messaging emphasizes 'high-quality development' "
+               "and 'dual circulation.' Policy signals stress stability "
+               "while pursuing structural reforms."),
+        "zh": '经济宣传强调"高质量发展"和"双循环"。政策信号在推进结构性改革的同时注重稳定。',
     },
     "social": {
-        "en": ("Official narrative emphasizes social stability and "
-               "national unity. Diaspora communities are framed as "
-               "bridges for cultural exchange."),
-        "zh": "官方叙事强调社会稳定和民族团结。侨民社区被定位为文化交流的桥梁。",
+        "en": ("Official narratives emphasize 'social harmony' and "
+               "'ethnic unity.' Overseas Chinese are positioned as "
+               "'bridges' for people-to-people exchanges."),
+        "zh": '官方叙事强调"社会和谐"与"民族团结"。海外华人被定位为民间交流的"桥梁"。',
     },
     "legal": {
-        "en": ("Chinese legal framework emphasizes national security "
-               "and state interests. Rule of law 'with Chinese "
-               "characteristics' is the stated model."),
-        "zh": "中国法律框架强调国家安全和国家利益。'中国特色法治'是既定模式。",
+        "en": ("Legal discourse centers on 'national security' and "
+               "'rule of law with Chinese characteristics.' Foreign "
+               "legal actions may be characterized as 'long-arm jurisdiction.'"),
+        "zh": '法律话语以"国家安全"和"中国特色法治"为核心。外国法律行动可能被定性为"长臂管辖"。',
     },
 }
 
