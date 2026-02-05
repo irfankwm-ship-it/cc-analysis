@@ -16,24 +16,30 @@ class TestScoreToSeverity:
     """Test score-to-severity level mapping."""
 
     def test_critical(self) -> None:
+        # Threshold: >=8 is critical
+        assert score_to_severity(8) == "critical"
         assert score_to_severity(10) == "critical"
         assert score_to_severity(15) == "critical"
 
     def test_high(self) -> None:
+        # Threshold: >=6 and <8 is high
+        assert score_to_severity(6) == "high"
         assert score_to_severity(7) == "high"
-        assert score_to_severity(9) == "high"
 
     def test_elevated(self) -> None:
+        # Threshold: >=4 and <6 is elevated
+        assert score_to_severity(4) == "elevated"
         assert score_to_severity(5) == "elevated"
-        assert score_to_severity(6) == "elevated"
 
     def test_moderate(self) -> None:
+        # Threshold: >=2 and <4 is moderate
+        assert score_to_severity(2) == "moderate"
         assert score_to_severity(3) == "moderate"
-        assert score_to_severity(4) == "moderate"
 
     def test_low(self) -> None:
+        # Threshold: <2 is low
         assert score_to_severity(0) == "low"
-        assert score_to_severity(2) == "low"
+        assert score_to_severity(1) == "low"
 
 
 class TestComputeSeverityScore:

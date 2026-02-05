@@ -208,6 +208,144 @@ def _generate_implications(category: str, severity: str) -> dict[str, Any]:
     }
 
 
+# ============================================================
+# Dual-Perspective Templates (Canada vs Beijing viewpoints)
+# ============================================================
+
+_CANADA_PERSPECTIVE: dict[str, dict[str, str]] = {
+    "diplomatic": {
+        "en": ("Ottawa views this as significant for bilateral relations. "
+               "Canadian officials will monitor for impacts on consular "
+               "services and diplomatic channels."),
+        "zh": "渥太华认为此事对双边关系有重要影响。加拿大官员将关注对领事服务和外交渠道的影响。",
+    },
+    "trade": {
+        "en": ("Canadian exporters and importers should assess supply chain "
+               "exposure. This may affect market access or trade costs."),
+        "zh": "加拿大进出口商应评估供应链风险。这可能影响市场准入或贸易成本。",
+    },
+    "military": {
+        "en": ("Relevant to Canada's Indo-Pacific defence commitments. "
+               "DND and allied partners will be monitoring developments."),
+        "zh": "与加拿大印太防务承诺相关。国防部和盟友伙伴将密切关注事态发展。",
+    },
+    "technology": {
+        "en": ("May trigger review of research partnerships or technology "
+               "transfer arrangements with Chinese entities."),
+        "zh": "可能触发对与中国实体的研究合作或技术转让安排的审查。",
+    },
+    "political": {
+        "en": ("Likely to feature in Parliamentary debate. Watch for "
+               "caucus positions and committee responses."),
+        "zh": "可能成为议会辩论议题。关注党团立场和委员会回应。",
+    },
+    "economic": {
+        "en": ("Canadian businesses with China exposure should monitor "
+               "for regulatory or market condition changes."),
+        "zh": "与中国有业务往来的加拿大企业应关注监管或市场条件变化。",
+    },
+    "social": {
+        "en": ("Relevant to Chinese-Canadian communities and academic "
+               "institutions with partnership arrangements."),
+        "zh": "与华裔加拿大人社区及有合作安排的学术机构相关。",
+    },
+    "legal": {
+        "en": ("May have implications for sanctions compliance, export "
+               "controls, or legal proceedings involving Chinese parties."),
+        "zh": "可能影响制裁合规、出口管制或涉及中方当事人的法律程序。",
+    },
+}
+
+_CHINA_PERSPECTIVE: dict[str, dict[str, str]] = {
+    "diplomatic": {
+        "en": ("Beijing frames this within its broader foreign policy "
+               "objectives. Official statements emphasize sovereignty "
+               "and mutual respect."),
+        "zh": "北京将此事置于更广泛的外交政策目标框架内。官方声明强调主权和相互尊重。",
+    },
+    "trade": {
+        "en": ("Chinese state media emphasizes fair trade and opposes "
+               "what it terms 'protectionist measures'. Business interests "
+               "remain a priority."),
+        "zh": "中国官方媒体强调公平贸易，反对其所称的'保护主义措施'。商业利益仍是优先考量。",
+    },
+    "military": {
+        "en": ("PLA and state media frame regional security through the "
+               "lens of territorial integrity and opposition to "
+               "'external interference'."),
+        "zh": "解放军和官方媒体从领土完整和反对'外部干涉'的角度看待区域安全问题。",
+    },
+    "technology": {
+        "en": ("Beijing views technology restrictions as containment. "
+               "State policy emphasizes self-reliance and indigenous "
+               "innovation."),
+        "zh": "北京将技术限制视为遏制行为。国家政策强调自主可控和自主创新。",
+    },
+    "political": {
+        "en": ("Chinese officials reject 'interference in internal affairs' "
+               "and emphasize the Communist Party's governance model."),
+        "zh": "中国官员反对'干涉内政'，强调中国共产党的治理模式。",
+    },
+    "economic": {
+        "en": ("State economic planning prioritizes stability and growth. "
+               "Policy signals focus on reform and opening up."),
+        "zh": "国家经济规划优先考虑稳定和增长。政策信号聚焦改革开放。",
+    },
+    "social": {
+        "en": ("Official narrative emphasizes social stability and "
+               "national unity. Diaspora communities are framed as "
+               "bridges for cultural exchange."),
+        "zh": "官方叙事强调社会稳定和民族团结。侨民社区被定位为文化交流的桥梁。",
+    },
+    "legal": {
+        "en": ("Chinese legal framework emphasizes national security "
+               "and state interests. Rule of law 'with Chinese "
+               "characteristics' is the stated model."),
+        "zh": "中国法律框架强调国家安全和国家利益。'中国特色法治'是既定模式。",
+    },
+}
+
+_CHINESE_SOURCE_NAMES: set[str] = {
+    "xinhua", "新华社", "新华网", "people's daily", "人民日报",
+    "global times", "环球时报", "cgtn", "china daily", "中国日报",
+    "mfa china", "mofcom", "state council", "国务院", "商务部", "外交部",
+    "caixin", "财新", "财新网", "the paper", "澎湃", "澎湃新闻",
+    "jiemian", "界面", "界面新闻", "36kr", "36氪",
+    "south china morning post", "scmp", "南华早报",
+    "liberty times", "自由時報", "cna", "中央社", "focus taiwan",
+    "rthk", "香港電台", "hong kong free press",
+    "china digital times", "中国数字时代",
+}
+
+
+def _is_chinese_source(signal: dict[str, Any]) -> bool:
+    """Detect if a signal originates from a Chinese-language source."""
+    if signal.get("language") == "zh":
+        return True
+    if signal.get("region") in ("mainland", "taiwan", "hongkong"):
+        return True
+    source = signal.get("source", "")
+    if isinstance(source, dict):
+        source = f"{source.get('en', '')} {source.get('zh', '')}".lower()
+    else:
+        source = str(source).lower()
+    for known in _CHINESE_SOURCE_NAMES:
+        if known in source:
+            return True
+    return False
+
+
+def _generate_perspectives(category: str, is_chinese: bool) -> dict[str, Any]:
+    """Generate dual-perspective content for a signal."""
+    canada = _CANADA_PERSPECTIVE.get(category, _CANADA_PERSPECTIVE["diplomatic"])
+    china = _CHINA_PERSPECTIVE.get(category, _CHINA_PERSPECTIVE["diplomatic"])
+    return {
+        "canada": canada,
+        "china": china,
+        "primary_source": {"en": "Chinese", "zh": "中方"} if is_chinese else {"en": "Western", "zh": "西方"},
+    }
+
+
 def _split_sentences(text: str) -> list[str]:
     """Split text into sentences using punctuation boundaries."""
     text = re.sub(r"\s+", " ", text).strip()
@@ -478,6 +616,11 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
             imp["what_to_watch"] = generated["what_to_watch"]
         else:
             imp["what_to_watch"] = _to_bilingual(imp["what_to_watch"])
+
+    # Add dual perspectives (Canadian and Beijing viewpoints)
+    is_chinese = _is_chinese_source(signal)
+    s["perspectives"] = _generate_perspectives(s.get("category", "diplomatic"), is_chinese)
+    s["original_zh_source"] = is_chinese
 
     return s
 

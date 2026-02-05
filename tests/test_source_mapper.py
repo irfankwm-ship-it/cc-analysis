@@ -17,6 +17,7 @@ class TestMapSourceTier:
         assert map_source_tier("MOFCOM") == "official"
         assert map_source_tier("PBOC") == "official"
         assert map_source_tier("MFA") == "official"
+        assert map_source_tier("Xinhua") == "official"  # State media
 
     def test_wire_sources(self) -> None:
         assert map_source_tier("Reuters") == "wire"
@@ -34,7 +35,7 @@ class TestMapSourceTier:
         assert map_source_tier("Globe and Mail") == "media"
         assert map_source_tier("CBC") == "media"
         assert map_source_tier("South China Morning Post") == "media"
-        assert map_source_tier("Xinhua") == "media"
+        # Note: Xinhua is now "official" (state media)
 
     def test_case_insensitive(self) -> None:
         assert map_source_tier("reuters") == "wire"
@@ -42,10 +43,10 @@ class TestMapSourceTier:
         assert map_source_tier("global affairs canada") == "official"
 
     def test_chinese_sources(self) -> None:
-        assert map_source_tier("\u5916\u4EA4\u90E8") == "official"
-        assert map_source_tier("\u5546\u52A1\u90E8") == "official"
-        assert map_source_tier("\u8DEF\u900F\u793E") == "wire"
-        assert map_source_tier("\u65B0\u534E\u793E") == "media"
+        assert map_source_tier("\u5916\u4EA4\u90E8") == "official"  # MFA
+        assert map_source_tier("\u5546\u52A1\u90E8") == "official"  # MOFCOM
+        assert map_source_tier("\u8DEF\u900F\u793E") == "wire"      # Reuters
+        assert map_source_tier("\u65B0\u534E\u793E") == "official"  # Xinhua (state media)
 
     def test_unknown_source_defaults_to_media(self) -> None:
         assert map_source_tier("Unknown News Outlet") == "media"
