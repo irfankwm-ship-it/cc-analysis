@@ -40,6 +40,69 @@ def _contains_untranslated_english(text: str, threshold: float = 0.15) -> bool:
     ratio = ascii_letters / total_chars
     return ratio > threshold
 
+
+# Common English words that LLMs often leave untranslated
+_UNTRANSLATED_WORDS = {
+    "capitulation": "投降",
+    "imperative": "当务之急",
+    "unacceptable": "不可接受",
+    "vibrant": "充满活力",
+    "likely": "可能",
+    "unlikely": "不太可能",
+    "aggressive": "激进",
+    "contingency": "应急",
+    "intelligence-sharing": "情报共享",
+    "expansion": "扩张",
+    "comprehensive": "全面",
+    "significant": "重大",
+    "unprecedented": "史无前例",
+    "strategic": "战略性",
+    "bilateral": "双边",
+    "multilateral": "多边",
+    "escalation": "升级",
+    "de-escalation": "缓和",
+    "retaliation": "报复",
+    "sanctions": "制裁",
+    "tariffs": "关税",
+    "decoupling": "脱钩",
+}
+
+
+def _clean_partial_translation(text: str) -> str:
+    """Clean up partially translated text.
+
+    Handles patterns like "word（翻译）" by extracting just the Chinese,
+    and replaces common untranslated English words with Chinese equivalents.
+
+    Args:
+        text: Chinese text that may contain English fragments.
+
+    Returns:
+        Cleaned text with English fragments replaced.
+    """
+    import re
+
+    if not text:
+        return text
+
+    # Pattern: English word followed by Chinese translation in parentheses
+    # e.g., "capitulation（投降）" -> "投降"
+    # Also handles "capitulation (投降)" with space
+    result = re.sub(
+        r'\b([A-Za-z]+(?:-[A-Za-z]+)?)\s*[（(]([^）)]+)[）)]',
+        r'\2',
+        text
+    )
+
+    # Replace common untranslated words (case-insensitive)
+    for en_word, zh_word in _UNTRANSLATED_WORDS.items():
+        # Word boundary matching for English
+        pattern = re.compile(r'\b' + re.escape(en_word) + r'\b', re.IGNORECASE)
+        result = pattern.sub(zh_word, result)
+
+    return result
+
+
 _BASE_URL = "https://api.mymemory.translated.net/get"
 
 
@@ -132,8 +195,8 @@ def _translate_batch(
                     translated[idx] = mm_result
                     mm_success += 1
                     continue
-                # Use original LLM result if all else fails
-                translated[idx] = result
+                # Use original LLM result with cleanup if all else fails
+                translated[idx] = _clean_partial_translation(result)
                 llm_success += 1
                 continue
             translated[idx] = result
@@ -148,6 +211,18 @@ def _translate_batch(
 
         # Small delay between MyMemory requests
         time.sleep(0.2)
+
+    # Final cleanup pass for all Chinese translations
+    if check_english:
+        cleaned_count = 0
+        for i in range(len(translated)):
+            if translated[i] != texts[i]:  # Was actually translated
+                cleaned = _clean_partial_translation(translated[i])
+                if cleaned != translated[i]:
+                    translated[i] = cleaned
+                    cleaned_count += 1
+        if cleaned_count > 0:
+            logger.info("Post-processed %d translations to fix English fragments", cleaned_count)
 
     total = len(non_empty)
     logger.info(
