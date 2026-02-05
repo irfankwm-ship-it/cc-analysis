@@ -221,7 +221,8 @@ _CANADA_PERSPECTIVE: dict[str, dict[str, str]] = {
         "en": ("Ottawa is likely assessing implications for Canada-China "
                "diplomatic engagement. Expect official statements to "
                "balance economic interests with values-based concerns."),
-        "zh": "渥太华正在评估此事对加中外交关系的影响。预计官方声明将在经济利益与价值观之间寻求平衡。",
+        "zh": ("渥太华正在评估此事对加中外交关系的影响。"
+               "预计官方声明将在经济利益与价值观之间寻求平衡。"),
     },
     "trade": {
         "en": ("Canadian exporters should monitor for tariff adjustments "
@@ -412,9 +413,11 @@ def _generate_perspectives(
     china_template = _CHINA_PERSPECTIVE.get(category, _CHINA_PERSPECTIVE["diplomatic"])
 
     # Build perspectives
-    result: dict[str, Any] = {
-        "primary_source": {"en": "Chinese media", "zh": "中方媒体"} if is_chinese else {"en": "Western media", "zh": "西方媒体"},
-    }
+    primary = (
+        {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
+        else {"en": "Western media", "zh": "西方媒体"}
+    )
+    result: dict[str, Any] = {"primary_source": primary}
 
     # If we have an extracted quote from a Chinese source, use it for Beijing perspective
     if extracted_quote and is_chinese:
@@ -466,7 +469,8 @@ _KEY_POINT_PATTERNS = [
     r"(?:according to|said|stated|noted|emphasized)",
     r"(?:the|this) (?:move|decision|policy|measure|action) (?:will|would|could|may)",
     r"(?:signals?|indicates?|suggests?|shows?|reflects?) (?:that|a |the )",
-    r"^(?:china|beijing|the (?:u\.?s\.?|us)|washington|canada|ottawa)",  # Geopolitical actors as subject
+    # Geopolitical actors as subject
+    r"^(?:china|beijing|the (?:u\.?s\.?|us)|washington|canada|ottawa)",
 ]
 
 
@@ -477,7 +481,8 @@ def _score_sentence(sentence: str, title: str, position: int, total: int) -> flo
     score = 0.0
 
     # Numbers and data points are the strongest signal of substance
-    numbers = re.findall(r'\d+[\d,.]*\s*(?:%|percent|billion|million|thousand|days?|countries)?', sentence)
+    num_pattern = r'\d+[\d,.]*\s*(?:%|percent|billion|million|thousand|days?|countries)?'
+    numbers = re.findall(num_pattern, sentence)
     score += len(numbers) * 2.0
 
     # Specific details: proper nouns, quoted speech, named entities
@@ -495,7 +500,8 @@ def _score_sentence(sentence: str, title: str, position: int, total: int) -> flo
         score -= 2.0
 
     # Action verbs that indicate substance
-    if re.search(r'\b(?:announced?|said|allow|permit|grant|require|impose|launch|sign|ban|approv)', s_lower):
+    action_pat = r'\b(?:announced?|said|allow|permit|grant|require|impose|launch|sign|ban|approv)'
+    if re.search(action_pat, s_lower):
         score += 1.5
 
     # Boost sentences that match key point patterns (thesis statements, forward-looking)
@@ -546,7 +552,8 @@ def _extract_list_items(text: str) -> list[str]:
 
 def _is_list_headline(title: str) -> bool:
     """Check if headline promises a list (e.g. '5 ways', '3 reasons')."""
-    return bool(re.search(r'\b\d+\s+(?:way|reason|thing|tip|step|method|sign|trend|takeaway)', title, re.I))
+    list_pat = r'\b\d+\s+(?:way|reason|thing|tip|step|method|sign|trend|takeaway)'
+    return bool(re.search(list_pat, title, re.I))
 
 
 def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
