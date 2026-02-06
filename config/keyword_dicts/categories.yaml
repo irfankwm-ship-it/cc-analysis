@@ -14,6 +14,20 @@ diplomatic:
     - MFA spokesperson
     - diplomatic note
     - persona non grata
+    # State visits and summits
+    - state visit
+    - official visit
+    - meets Xi
+    - meets with Xi
+    - China trip
+    - China visit
+    - visiting China
+    - summit meeting
+    - bilateral meeting
+    - diplomatic reset
+    - foreign minister
+    - G20 meeting
+    - APEC summit
   zh:
     - "\u5927\u4F7F"
     - "\u4F7F\u9986"
@@ -27,6 +41,13 @@ diplomatic:
     - "\u9886\u4E8B\u9986"
     - "\u5916\u4EA4\u5B98"
     - "\u5916\u4EA4\u90E8\u53D1\u8A00\u4EBA"
+    # State visits
+    - "国事访问"
+    - "访华"
+    - "访问中国"
+    - "会见习近平"
+    - "外交部长"
+    - "首脑会晤"
 
 trade:
   en:
@@ -240,6 +261,21 @@ social:
     - community
     - public opinion
     - protest
+    # Cultural events and holidays
+    - Chinese New Year
+    - Lunar New Year
+    - Spring Festival
+    - Mid-Autumn Festival
+    - festival
+    - celebration
+    - holiday shopping
+    - Chinatown
+    - cultural exchange
+    - Grammy
+    - Dalai Lama
+    - tourism
+    - tourist
+    - visa-free
   zh:
     - "\u5B66\u751F"
     - "\u5927\u5B66"
@@ -252,6 +288,17 @@ social:
     - "\u793E\u533A"
     - "\u6C11\u610F"
     - "\u6297\u8BAE"
+    # Cultural events
+    - "春节"
+    - "新年"
+    - "中秋节"
+    - "节日"
+    - "庆祝"
+    - "唐人街"
+    - "文化交流"
+    - "达赖喇嘛"
+    - "旅游"
+    - "免签"
 
 legal:
   en:

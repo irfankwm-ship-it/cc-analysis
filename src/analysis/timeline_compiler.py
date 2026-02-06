@@ -8,11 +8,157 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("analysis.timeline")
+
+# Characters that indicate Chinese text (CJK Unified Ideographs range)
+_CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+
+# Common French words that indicate untranslated content
+_FRENCH_INDICATORS = {"le", "la", "les", "des", "du", "en", "pour", "dans", "qui", "est"}
+
+
+def _is_chinese_text(text: str) -> bool:
+    """Check if text contains Chinese characters."""
+    if not text:
+        return False
+    return bool(_CJK_PATTERN.search(text))
+
+
+def _is_likely_french(text: str) -> bool:
+    """Check if text appears to be French (common false positive)."""
+    if not text:
+        return False
+    words = set(text.lower().split()[:10])  # Check first 10 words
+    return len(words & _FRENCH_INDICATORS) >= 2
+
+
+def _has_valid_translation(bilingual: dict[str, str]) -> bool:
+    """Check if a bilingual object has valid translations in both languages.
+
+    Returns False if:
+    - zh field is empty
+    - zh field contains only English text (no Chinese characters)
+    - zh field is identical to en field (wasn't translated)
+    - en field appears to be French (wrong source language)
+    """
+    en = bilingual.get("en", "").strip()
+    zh = bilingual.get("zh", "").strip()
+
+    # Reject empty translations
+    if not en or not zh:
+        return False
+
+    # Reject if zh has no Chinese characters (just English)
+    if not _is_chinese_text(zh):
+        return False
+
+    # Reject if en appears to be French
+    if _is_likely_french(en):
+        return False
+
+    # Accept if zh field has Chinese characters
+    return True
+
+
+def _title_similarity(title1: str, title2: str) -> float:
+    """Calculate similarity ratio between two titles."""
+    if not title1 or not title2:
+        return 0.0
+    # Normalize: lowercase and remove extra whitespace
+    t1 = " ".join(title1.lower().split())
+    t2 = " ".join(title2.lower().split())
+    return SequenceMatcher(None, t1, t2).ratio()
+
+
+def _get_event_title_en(event: dict[str, Any]) -> str:
+    """Extract English title from event."""
+    title = event.get("title", {})
+    if isinstance(title, dict):
+        return title.get("en", "")
+    return str(title) if title else ""
+
+
+def _deduplicate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove duplicate events based on date + title similarity.
+
+    Two events are duplicates if:
+    - Same date AND
+    - Title similarity >= 0.70
+    """
+    if not events:
+        return events
+
+    deduped = []
+    for event in events:
+        event_date = event.get("date", "")
+        event_title = _get_event_title_en(event)
+
+        # Check if this is a duplicate of an already-kept event
+        is_dup = False
+        for kept in deduped:
+            if kept.get("date", "") != event_date:
+                continue
+            kept_title = _get_event_title_en(kept)
+            if _title_similarity(event_title, kept_title) >= 0.70:
+                logger.debug(
+                    "Dedup: skipping '%s' (similar to '%s')",
+                    event_title[:50],
+                    kept_title[:50],
+                )
+                is_dup = True
+                break
+
+        if not is_dup:
+            deduped.append(event)
+
+    if len(events) != len(deduped):
+        logger.info("Deduplicated events: %d -> %d", len(events), len(deduped))
+
+    return deduped
+
+
+def _deduplicate_against_existing(
+    new_events: list[dict[str, Any]],
+    existing_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Remove new events that duplicate existing timeline events."""
+    if not new_events or not existing_events:
+        return new_events
+
+    # Build index of existing events by date for fast lookup
+    existing_by_date: dict[str, list[dict[str, Any]]] = {}
+    for e in existing_events:
+        d = e.get("date", "")
+        existing_by_date.setdefault(d, []).append(e)
+
+    deduped = []
+    for event in new_events:
+        event_date = event.get("date", "")
+        event_title = _get_event_title_en(event)
+
+        # Check against existing events on same date
+        is_dup = False
+        for existing in existing_by_date.get(event_date, []):
+            existing_title = _get_event_title_en(existing)
+            if _title_similarity(event_title, existing_title) >= 0.70:
+                logger.debug(
+                    "Dedup vs existing: skipping '%s' (similar to '%s')",
+                    event_title[:50],
+                    existing_title[:50],
+                )
+                is_dup = True
+                break
+
+        if not is_dup:
+            deduped.append(event)
+
+    return deduped
 
 
 def compile_canada_china_timeline(
@@ -40,6 +186,18 @@ def compile_canada_china_timeline(
     if timeline_file.exists():
         with open(timeline_file) as f:
             timeline = json.load(f)
+        # Filter out existing events with invalid translations
+        original_count = len(timeline.get("events", []))
+        timeline["events"] = [
+            e for e in timeline.get("events", [])
+            if _has_valid_translation(e.get("title", {}))
+        ]
+        filtered_count = original_count - len(timeline["events"])
+        if filtered_count > 0:
+            logger.info(
+                "Removed %d events with invalid translations from existing timeline",
+                filtered_count,
+            )
     else:
         timeline = _create_empty_timeline("canada-china")
 
@@ -94,12 +252,30 @@ def compile_canada_china_timeline(
                 if event_id in existing_ids:
                     continue
 
+                # Validate translation quality before including
+                title = signal.get("title", {})
+                if isinstance(title, dict) and not _has_valid_translation(title):
+                    logger.debug(
+                        "Skipping signal %s: invalid translation (en=%s, zh=%s)",
+                        event_id,
+                        title.get("en", "")[:50],
+                        title.get("zh", "")[:50],
+                    )
+                    continue
+
                 event = _signal_to_event(signal, date_str)
                 new_events.append(event)
                 existing_ids.add(event_id)
 
+    # Deduplicate new events (same date + similar title = duplicate)
+    new_events = _deduplicate_events(new_events)
+
+    # Also deduplicate against existing timeline events
+    existing_events = timeline.get("events", [])
+    new_events = _deduplicate_against_existing(new_events, existing_events)
+
     # Merge new events into timeline
-    timeline["events"] = timeline.get("events", []) + new_events
+    timeline["events"] = existing_events + new_events
     timeline["events"].sort(key=lambda e: e.get("date", ""))
 
     # Update tension trend (merge with existing, dedupe by date)
