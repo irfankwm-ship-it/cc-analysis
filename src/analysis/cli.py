@@ -29,7 +29,7 @@ from analysis.entities import (
     match_entities_across_signals,
     match_entities_in_signal,
 )
-from analysis.llm import llm_summarize
+from analysis.llm import llm_generate_perspectives, llm_summarize
 from analysis.output import assemble_briefing, validate_briefing, write_archive, write_processed
 from analysis.tension_index import compute_tension_index
 from analysis.translate import translate_to_chinese, translate_to_english
@@ -320,24 +320,49 @@ _CHINA_PERSPECTIVE: dict[str, dict[str, str]] = {
 }
 
 _CHINESE_SOURCE_NAMES: set[str] = {
+    # Mainland official
     "xinhua", "新华社", "新华网", "people's daily", "人民日报",
     "global times", "环球时报", "cgtn", "china daily", "中国日报",
     "mfa china", "mofcom", "state council", "国务院", "商务部", "外交部",
+    # Mainland business/tech
     "caixin", "财新", "财新网", "the paper", "澎湃", "澎湃新闻",
-    "jiemian", "界面", "界面新闻", "36kr", "36氪",
+    "jiemian", "界面", "界面新闻", "36kr", "36氪", "yibang", "亿邦动力",
+    # Hong Kong
     "south china morning post", "scmp", "南华早报",
+    "scmp diplomacy", "scmp economy", "scmp politics", "scmp china",
+    "rthk", "香港電台", "hong kong free press", "hkfp",
+    # Taiwan
     "liberty times", "自由時報", "cna", "中央社", "focus taiwan",
-    "rthk", "香港電台", "hong kong free press",
+    "taipei times", "taiwan news", "united daily news", "聯合報",
+    # Diaspora/critical
     "china digital times", "中国数字时代",
+    # BBC Chinese
+    "bbc china", "bbc中文", "bbc chinese",
+}
+
+# Chinese domain patterns for URL-based detection
+_CHINESE_DOMAINS: set[str] = {
+    "xinhua", "news.cn", "people.com.cn", "globaltimes.cn",
+    "chinadaily.com.cn", "cgtn.com", "scmp.com", "thepaper.cn",
+    "caixin.com", "jiemian.com", "36kr.com", "yibang.com",
+    "cna.com.tw", "focustaiwan.tw", "taipeitimes.com",
+    "rthk.hk", "hongkongfp.com",
+    "bbc.com/zhongwen", "bbc.co.uk/zhongwen",
 }
 
 
 def _is_chinese_source(signal: dict[str, Any]) -> bool:
-    """Detect if a signal originates from a Chinese-language source."""
+    """Detect if a signal originates from a Chinese-language source.
+
+    Checks multiple fields: language, region, source name, and URL patterns.
+    """
+    # Check explicit language/region markers
     if signal.get("language") == "zh":
         return True
     if signal.get("region") in ("mainland", "taiwan", "hongkong"):
         return True
+
+    # Check source name against known Chinese sources
     source = signal.get("source", "")
     if isinstance(source, dict):
         source = f"{source.get('en', '')} {source.get('zh', '')}".lower()
@@ -346,6 +371,15 @@ def _is_chinese_source(signal: dict[str, Any]) -> bool:
     for known in _CHINESE_SOURCE_NAMES:
         if known in source:
             return True
+
+    # Check URL patterns for Chinese domains
+    url = signal.get("url", "") or signal.get("source_url", "") or signal.get("link", "")
+    if url:
+        url_lower = url.lower()
+        for domain in _CHINESE_DOMAINS:
+            if domain in url_lower:
+                return True
+
     return False
 
 
@@ -382,12 +416,35 @@ def _generate_perspectives(
     is_chinese: bool,
     body_text: str = "",
     source_name: str = "",
+    title: str = "",
 ) -> dict[str, Any]:
     """Generate dual-perspective content for a signal.
 
-    First attempts to extract actual quotes from the article body.
-    Falls back to category-based templates if no quotes found.
+    Priority order:
+    1. LLM-generated perspectives (signal-specific, when available)
+    2. Extracted quotes from article body
+    3. Category-based templates (fallback)
     """
+    # Try LLM-powered perspectives first for higher-quality, signal-specific content
+    if title and body_text:
+        llm_perspectives = llm_generate_perspectives(
+            title=title,
+            body=body_text,
+            category=category,
+            is_chinese_source=is_chinese,
+        )
+        if llm_perspectives:
+            primary = (
+                {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
+                else {"en": "Western media", "zh": "西方媒体"}
+            )
+            return {
+                "primary_source": primary,
+                "canada": llm_perspectives["canada"],
+                "china": llm_perspectives["china"],
+                "llm_generated": True,
+            }
+
     # Quote indicators to look for
     en_quote_indicators = [
         "said", "stated", "according to", "told reporters",
@@ -684,9 +741,43 @@ def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
             else:
                 break
         if lede_summary:
-            return lede_summary
+            return _ensure_complete_sentences(lede_summary)
 
-    return " ".join(sentences[i] for i in selected)
+    summary = " ".join(sentences[i] for i in selected)
+    return _ensure_complete_sentences(summary)
+
+
+def _ensure_complete_sentences(text: str) -> str:
+    """Ensure text ends with complete sentences.
+
+    If the text doesn't end with proper punctuation, trim to the last
+    complete sentence to avoid truncated summaries.
+    """
+    if not text:
+        return text
+
+    text = text.rstrip()
+
+    # Check if already ends with proper punctuation
+    if text[-1] in ".!?。！？":
+        return text
+
+    # Find the last punctuation mark
+    last_punct = max(
+        text.rfind("."),
+        text.rfind("!"),
+        text.rfind("?"),
+        text.rfind("。"),
+        text.rfind("！"),
+        text.rfind("？"),
+    )
+
+    # If we found punctuation and it's not at the very start, trim to it
+    if last_punct > 20:  # Require at least 20 chars before punctuation
+        return text[: last_punct + 1]
+
+    # No good punctuation found, return original with ellipsis
+    return text + "..."
 
 
 def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
@@ -789,17 +880,29 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
     if isinstance(source_name, dict):
         source_name = source_name.get("en", "") or source_name.get("zh", "")
 
+    # Get title for LLM perspective generation
+    title_for_perspectives = s.get("title", {}).get("en", "") or title_str
+
     s["perspectives"] = _generate_perspectives(
         category=s.get("category", "diplomatic"),
         is_chinese=is_chinese,
         body_text=body_for_quotes,
         source_name=source_name,
+        title=title_for_perspectives,
     )
     s["original_zh_source"] = is_chinese
 
     # Store original source URL for Chinese sources (for "view original" links)
     if is_chinese:
-        s["original_zh_url"] = signal.get("url", "") or signal.get("source_url", "")
+        zh_url = (
+            signal.get("url")
+            or signal.get("source_url")
+            or signal.get("link")
+            or signal.get("original_url")
+            or ""
+        )
+        if zh_url:
+            s["original_zh_url"] = zh_url
 
     return s
 

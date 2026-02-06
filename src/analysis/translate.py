@@ -65,6 +65,21 @@ _UNTRANSLATED_WORDS = {
     "sanctions": "制裁",
     "tariffs": "关税",
     "decoupling": "脱钩",
+    # Additional commonly untranslated words
+    "diet": "国会",  # Japanese Diet
+    "visiting": "访问",
+    "oman": "阿曼",
+    "assisted reproductive": "辅助生殖",
+    "marines": "海军陆战队",
+    "startup": "初创企业",
+    "dismantled": "捣毁",
+    "purge": "清洗",
+    "breakthrough": "突破",
+    "summit": "峰会",
+    "corridor": "走廊",
+    "initiative": "倡议",
+    "framework": "框架",
+    "stakeholder": "利益相关方",
 }
 
 

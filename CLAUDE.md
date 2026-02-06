@@ -20,15 +20,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    - Tier 3: Title 0.50–0.80 AND body Jaccard ≥0.60
    - Tier 4: Same entities + same category + body Jaccard ≥0.50 (catches same story from different sources)
 6. **Classify** — source tier mapping → category (8 categories via keyword scoring) → severity (multi-factor score)
-7. **Normalize & summarize** — convert to bilingual schema; LLM summarization for critical/high severity signals
-8. **Translate** — LLM translation (EN↔ZH) with MyMemory API fallback
-9. **Compute trends** — day-over-day comparison from previous briefing
-10. **Compute tension index** — weighted composite (0–10 scale) across 6 components
-11. **Match entities** — scan signals against `entity_aliases.yaml` dictionary (21 entities)
-12. **Track active situations** — trigger keyword matching against 6 known situations
-13. **Generate supplementary content** — volume number, today's number, quote of the day
-14. **Assemble & validate** — JSON Schema validation with local `$ref` resolution
-15. **Write output** — `processed/{date}/briefing.json` + `processed/latest/` + `archive/daily/{date}/`
+7. **Normalize & summarize** — convert to bilingual schema; LLM summarization for critical/high severity signals; ensure complete sentences (no truncation)
+8. **Translate** — LLM translation (EN↔ZH) with strict mode for Chinese quality, MyMemory API fallback, dictionary-based cleanup for common untranslated words
+9. **Generate perspectives** — LLM-powered dual perspectives (Canada/Beijing viewpoints) with template fallback
+10. **Compute trends** — day-over-day comparison from previous briefing
+11. **Compute tension index** — weighted composite (0–10 scale) across 6 components
+12. **Match entities** — scan signals against `entity_aliases.yaml` dictionary (21 entities)
+13. **Track active situations** — trigger keyword matching against 6 known situations
+14. **Generate supplementary content** — volume number, today's number, quote of the day
+15. **Assemble & validate** — JSON Schema validation with local `$ref` resolution
+16. **Write output** — `processed/{date}/briefing.json` + `processed/latest/` + `archive/daily/{date}/`
 
 ### Classification Details
 
@@ -88,11 +89,29 @@ Config hierarchy: `AppConfig` → `PathsConfig`, `TensionConfig`, `LoggingConfig
 - Component scores are integers; composite uses unrounded floats before final 1-decimal rounding
 - Dedup stop words exclude common EN words AND Chinese function words (的, 了, 是, etc.) from Jaccard comparison
 - Chinese text tokenized by character (no word boundaries); English by 3+ char words
-- Translation: LLM primary (local ollama) → MyMemory fallback → original text on failure
+- Translation: LLM primary (local ollama) → strict mode retry → MyMemory fallback → dictionary cleanup
 - LLM config via env vars: `OLLAMA_URL`, `OLLAMA_API_KEY`, `OLLAMA_MODEL` (default: qwen2.5:3b-instruct-q4_K_M)
 - Empty raw directory is handled gracefully (empty signal list with warning)
 - If strict validation is on and fails, raises `ClickException` (non-zero exit)
 - Ruff config: line-length 100, target Python 3.12, rules E/F/I/N/W/UP
+
+### Translation Quality
+
+- `_UNTRANSLATED_WORDS` dictionary in `translate.py` maps common English words that LLMs miss
+- Strict translation mode adds Chinese-specific style guidance: natural phrasing, no colon-separated constructs, journalistic style
+- Summaries are trimmed to complete sentences via `_ensure_complete_sentences()` to avoid truncation
+
+### LLM Perspectives
+
+- `llm_generate_perspectives()` in `llm.py` generates signal-specific Canada/Beijing viewpoints
+- Falls back to category-based templates in `_CANADA_PERSPECTIVE` and `_CHINA_PERSPECTIVE` dicts
+- Perspectives are bilingual (EN/ZH) and tailored to signal content
+
+### Chinese Source Detection
+
+- `_CHINESE_SOURCE_NAMES` set includes mainland, HK, Taiwan, and diaspora sources
+- `_CHINESE_DOMAINS` set enables URL-based detection (xinhua, scmp.com, thepaper.cn, etc.)
+- Chinese sources get `original_zh_url` field for "view original" links
 
 ## Extension Points
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 import requests
 
@@ -109,19 +110,113 @@ def llm_translate_strict(text: str, source_lang: str, target_lang: str) -> str |
     src_name = lang_names.get(source_lang, source_lang)
     tgt_name = lang_names.get(target_lang, target_lang)
 
+    # Build language-specific style guidance
+    style_guidance = ""
+    if target_lang == "zh":
+        style_guidance = (
+            "5. Use natural, idiomatic Chinese phrasing — avoid literal translations\n"
+            "6. Replace colon-separated phrases (A: B) with natural sentence structures\n"
+            "7. For news headlines, use journalistic Chinese style (简洁有力)\n"
+            "8. Avoid awkward word-for-word translations; restructure for fluency\n"
+        )
+
     prompt = (
         f"Translate the following text from {src_name} to {tgt_name}.\n\n"
         f"CRITICAL INSTRUCTIONS:\n"
         f"1. Translate EVERY word including proper nouns, titles, and quoted words\n"
         f"2. Do NOT leave any {src_name} words untranslated\n"
         f"3. For names of people, use standard {tgt_name} transliterations\n"
-        f"4. Return ONLY the translation, nothing else\n\n"
+        f"4. Return ONLY the translation, nothing else\n"
+        f"{style_guidance}\n"
         f"Text to translate:\n{text}"
     )
 
     result = _call_ollama(prompt)
     if result and result != text:
         return result
+    return None
+
+
+def llm_generate_perspectives(
+    title: str,
+    body: str,
+    category: str,
+    is_chinese_source: bool,
+) -> dict[str, Any] | None:
+    """Generate signal-specific dual perspectives via LLM.
+
+    Creates Canadian and Beijing viewpoints tailored to the specific signal,
+    rather than using generic category-based templates.
+
+    Args:
+        title: Signal headline.
+        body: Signal body text (first 1000 chars used).
+        category: Signal category (diplomatic, trade, etc.).
+        is_chinese_source: Whether the signal originated from a Chinese source.
+
+    Returns:
+        Dict with canada_en, canada_zh, china_en, china_zh keys, or None on failure.
+    """
+    if not title or not body:
+        return None
+
+    # Truncate body for prompt efficiency
+    body_truncated = body[:1000] if len(body) > 1000 else body
+    source_context = "Chinese media" if is_chinese_source else "Western media"
+
+    prompt = f"""Analyze this Canada-China news and generate dual perspectives.
+
+Category: {category}
+Source: {source_context}
+Headline: {title}
+Summary: {body_truncated}
+
+Generate balanced perspectives from both sides. Each perspective should be 2-3 sentences,
+focusing on how each side would view this development and what it means for their interests.
+
+CRITICAL: Respond with ONLY a valid JSON object, no other text:
+{{
+  "canada_en": "Canadian perspective in English (2-3 sentences)",
+  "canada_zh": "加方视角的中文翻译",
+  "china_en": "Beijing perspective in English (2-3 sentences)",
+  "china_zh": "北京视角的中文翻译"
+}}
+
+Canadian perspective: policy implications, stakeholder impacts, values-based concerns.
+Beijing perspective: official framing, sovereignty concerns, state media narratives."""
+
+    result = _call_ollama(prompt)
+    if not result:
+        return None
+
+    # Try to parse JSON from response
+    import json
+
+    try:
+        # Handle potential markdown code fences
+        clean_result = result.strip()
+        if clean_result.startswith("```"):
+            lines = clean_result.split("\n")
+            lines = [ln for ln in lines if not ln.strip().startswith("```")]
+            clean_result = "\n".join(lines)
+
+        # Find JSON boundaries
+        start = clean_result.find("{")
+        end = clean_result.rfind("}") + 1
+        if start >= 0 and end > start:
+            json_str = clean_result[start:end]
+            data = json.loads(json_str)
+
+            # Validate required keys
+            required = ("canada_en", "canada_zh", "china_en", "china_zh")
+            if all(k in data and data[k] for k in required):
+                return {
+                    "canada": {"en": data["canada_en"], "zh": data["canada_zh"]},
+                    "china": {"en": data["china_en"], "zh": data["china_zh"]},
+                }
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.debug("Failed to parse LLM perspectives response: %s", exc)
+
     return None
 
 
