@@ -131,6 +131,15 @@ Active situations also support timeline tracking:
 - `event_start_date` / `event_end_date` — Duration tracking for multi-day events
 - `timeline_id` — Unique ID for linking across daily briefings
 
+### Timeline Validation & Deduplication
+
+The timeline compiler (`timeline_compiler.py`) enforces quality:
+- **Translation validation**: Events must have proper Chinese text in `zh` field (not English or French)
+- **CJK character check**: `_is_chinese_text()` verifies Chinese characters present
+- **French detection**: `_is_likely_french()` catches untranslated French sources
+- **Deduplication**: Same date + title similarity ≥0.70 = duplicate, keeps first occurrence
+- **Existing event filter**: Invalid translations removed when loading existing timeline
+
 ## Extension Points
 
 - **New category**: add to `categories.yaml` + `VALID_CATEGORIES` + `SPECIFICITY_ORDER`; optionally add to `COMPONENT_WEIGHTS` in `tension_index.py` (rebalance to sum 1.0)
