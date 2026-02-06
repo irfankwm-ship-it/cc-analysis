@@ -86,10 +86,16 @@ _UNTRANSLATED_WORDS = {
     "exclusively": "独家",
     "allegedly": "据称",
     "reportedly": "据报道",
+    "outlets": "媒体",
+    "appropriations": "拨款",
     # Common verbs
     "rebalancing": "再平衡",
     "rallies": "团结",
     "benefiting": "惠及",
+    # Additional terms
+    "listing": "上市",
+    "standoff": "对峙",
+    "stalls": "拖延",
 }
 
 
@@ -110,26 +116,38 @@ def _clean_partial_translation(text: str) -> str:
     if not text:
         return text
 
-    # Pattern: English word followed by Chinese translation in parentheses
-    # e.g., "capitulation（投降）" -> "投降"
-    # e.g., "的 capitulation （投降）" -> "的投降"
-    # e.g., "的capitulation（投降）" -> "的投降"
     # Only applies to text with Chinese characters (avoids modifying pure English)
     has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
     if has_chinese:
-        # Remove optional leading space, English word, optional space, and parenthesized Chinese
+        # Pattern 1: English word followed by Chinese translation in parentheses
+        # e.g., "capitulation（投降）" -> "投降"
+        # e.g., "的 capitulation （投降）" -> "的投降"
         result = re.sub(
             r'\s*([A-Za-z]+(?:-[A-Za-z]+)?)\s*[（(]([^）)]+)[）)]',
             r'\2',
             text
         )
+        # Pattern 2: Chinese followed by English abbreviation in parentheses
+        # e.g., "电动汽车（EVs）" -> "电动汽车"
+        # e.g., "媒体 outlets" -> "媒体" (standalone English after Chinese)
+        result = re.sub(
+            r'[（(]([A-Za-z]+(?:s)?)[）)]',
+            '',
+            result
+        )
     else:
         result = text
 
     # Replace common untranslated words (case-insensitive)
+    # Use lookahead/lookbehind to match at Chinese-English boundaries too
     for en_word, zh_word in _UNTRANSLATED_WORDS.items():
-        # Word boundary matching for English
-        pattern = re.compile(r'\b' + re.escape(en_word) + r'\b', re.IGNORECASE)
+        # Match English word at word boundaries OR adjacent to Chinese characters
+        # (?<![A-Za-z]) = not preceded by letter
+        # (?![A-Za-z]) = not followed by letter
+        pattern = re.compile(
+            r'(?<![A-Za-z])' + re.escape(en_word) + r'(?![A-Za-z])',
+            re.IGNORECASE
+        )
         result = pattern.sub(zh_word, result)
 
     return result
