@@ -54,14 +54,21 @@ jobs:
         run: |
           python cc-data/scripts/validate.py processed/${{ steps.date.outputs.date }}/briefing.json
 
-      - name: Commit and push processed + archive data to cc-data
+      - name: Compile timeline
+        run: |
+          python -m analysis.cli compile-timeline \
+            --env prod \
+            --archive-dir ./cc-data/archive \
+            --timelines-dir ./cc-data/timelines
+
+      - name: Commit and push processed + archive + timelines to cc-data
         working-directory: cc-data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add processed/ archive/
+          git add processed/ archive/ timelines/
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "Add processed data and archive for ${{ steps.date.outputs.date }}"
+          git commit -m "Daily rebuild: ${{ steps.date.outputs.date }}"
           git push
 
       - name: Dispatch cc-site workflow
