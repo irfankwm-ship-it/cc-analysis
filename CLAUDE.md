@@ -69,7 +69,14 @@ poetry run analysis compile-volume --date 2025-02-01  # compile previous month
 ```
 analysis run [--env dev|staging|prod] [--date YYYY-MM-DD] [--raw-dir DIR] [--output-dir DIR] [--archive-dir DIR] [--schemas-dir DIR]
 analysis compile-volume [--env dev|staging|prod] [--date YYYY-MM-DD] [--archive-dir DIR]
+analysis compile-timeline [--env dev|staging|prod] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--archive-dir DIR] [--timelines-dir DIR]
+analysis mark-milestone SIGNAL_ID [--timeline-category CATEGORY] [--archive-dir DIR]
 ```
+
+### Timeline Commands
+
+- `compile-timeline`: Aggregates daily briefings into `timelines/canada-china.json`. Extracts high-severity signals, tension trend data, and milestone events.
+- `mark-milestone`: Flags a signal as historically significant for timeline inclusion. Categories: crisis, escalation, de-escalation, agreement, policy_shift, leadership, incident, sanction, negotiation.
 
 ## Configuration
 
@@ -112,6 +119,17 @@ Config hierarchy: `AppConfig` → `PathsConfig`, `TensionConfig`, `LoggingConfig
 - `_CHINESE_SOURCE_NAMES` set includes mainland, HK, Taiwan, and diaspora sources
 - `_CHINESE_DOMAINS` set enables URL-based detection (xinhua, scmp.com, thepaper.cn, etc.)
 - Chinese sources get `original_zh_url` field for "view original" links
+
+### Timeline Support
+
+Signals can be marked for timeline inclusion with these optional fields:
+- `is_milestone: true` — Flag historically significant events
+- `timeline_category` — Event type: crisis, escalation, de-escalation, agreement, policy_shift, leadership, incident, sanction, negotiation
+- `related_signals` — Array of related signal IDs for event chains
+
+Active situations also support timeline tracking:
+- `event_start_date` / `event_end_date` — Duration tracking for multi-day events
+- `timeline_id` — Unique ID for linking across daily briefings
 
 ## Extension Points
 

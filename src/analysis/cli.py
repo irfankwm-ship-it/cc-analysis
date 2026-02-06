@@ -38,6 +38,11 @@ from analysis.translate import (
     translate_to_english,
 )
 from analysis.trend import compute_trends
+from analysis.timeline_compiler import (
+    compile_canada_china_timeline,
+    mark_signal_as_milestone,
+    write_timeline,
+)
 from analysis.volume_compiler import compile_volume, write_volume
 
 logger = logging.getLogger("analysis")
@@ -2031,6 +2036,118 @@ def compile_volume_cmd(
     click.echo(f"  Period: {volume_meta['period_start']} to {volume_meta['period_end']}")
     click.echo(f"  Signals: {volume_meta['signal_count']}")
     click.echo(f"  Output: {output_path}")
+
+
+@main.command("compile-timeline")
+@click.option("--env", type=click.Choice(["dev", "staging", "prod"]), default=None,
+              help="Environment (default: dev or CC_ENV)")
+@click.option("--start-date", default=None,
+              help="Start date filter (YYYY-MM-DD). Default: all available.")
+@click.option("--end-date", default=None,
+              help="End date filter (YYYY-MM-DD). Default: today.")
+@click.option("--archive-dir", default=None,
+              help="Archive directory (default: ../cc-data/archive/)")
+@click.option("--timelines-dir", default=None,
+              help="Timelines output directory (default: ../cc-data/timelines/)")
+def compile_timeline_cmd(
+    env: str | None,
+    start_date: str | None,
+    end_date: str | None,
+    archive_dir: str | None,
+    timelines_dir: str | None,
+) -> None:
+    """Compile Canada-China timeline from daily briefings.
+
+    Aggregates daily briefing data into a timeline format suitable for
+    visualization. Extracts milestone signals, tension trend data, and
+    key events.
+
+    Examples:
+        # Compile full timeline from all available briefings
+        analysis compile-timeline
+
+        # Compile timeline for specific date range
+        analysis compile-timeline --start-date 2025-01-01 --end-date 2025-12-31
+
+        # Use custom directories
+        analysis compile-timeline --archive-dir /path/to/archive --timelines-dir /path/to/output
+    """
+    config = load_config(env=env)
+    _setup_logging(config.logging.level, config.logging.format)
+
+    resolved_archive = archive_dir or str(_resolve_path(config.paths.archive_dir))
+    resolved_timelines = timelines_dir or str(
+        _resolve_path(config.paths.archive_dir).parent / "timelines"
+    )
+
+    logger.info("Compiling Canada-China timeline")
+    logger.info("  Archive: %s", resolved_archive)
+    logger.info("  Output:  %s", resolved_timelines)
+    if start_date:
+        logger.info("  From:    %s", start_date)
+    if end_date:
+        logger.info("  To:      %s", end_date)
+
+    timeline = compile_canada_china_timeline(
+        archive_dir=resolved_archive,
+        timelines_dir=resolved_timelines,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    output_path = write_timeline(timeline, resolved_timelines)
+
+    click.echo("Timeline compiled successfully")
+    click.echo(f"  Events:    {timeline['metadata']['total_events']}")
+    click.echo(f"  Milestones: {timeline['metadata']['total_milestones']}")
+    click.echo(f"  Tension points: {len(timeline.get('tension_trend', []))}")
+    click.echo(f"  Output:    {output_path}")
+
+
+@main.command("mark-milestone")
+@click.argument("signal_id")
+@click.option("--timeline-category", default=None,
+              type=click.Choice([
+                  "crisis", "escalation", "de-escalation", "agreement",
+                  "policy_shift", "leadership", "incident", "sanction", "negotiation"
+              ]),
+              help="Timeline category for the milestone")
+@click.option("--archive-dir", default=None,
+              help="Archive directory (default: ../cc-data/archive/)")
+@click.option("--env", type=click.Choice(["dev", "staging", "prod"]), default=None,
+              help="Environment (default: dev or CC_ENV)")
+def mark_milestone_cmd(
+    signal_id: str,
+    timeline_category: str | None,
+    archive_dir: str | None,
+    env: str | None,
+) -> None:
+    """Mark a signal as a historical milestone.
+
+    Finds a signal by ID in the archive and marks it as a milestone for
+    timeline inclusion. Optionally assigns a timeline category.
+
+    Example:
+        analysis mark-milestone meng-wanzhou-arrest --timeline-category crisis
+    """
+    config = load_config(env=env)
+    _setup_logging(config.logging.level, config.logging.format)
+
+    resolved_archive = archive_dir or str(_resolve_path(config.paths.archive_dir))
+
+    success = mark_signal_as_milestone(
+        signal_id=signal_id,
+        timeline_category=timeline_category,
+        archive_dir=resolved_archive,
+    )
+
+    if success:
+        click.echo(f"Marked signal '{signal_id}' as milestone")
+        if timeline_category:
+            click.echo(f"  Category: {timeline_category}")
+    else:
+        click.echo(f"Signal '{signal_id}' not found in archive", err=True)
+        raise click.ClickException("Signal not found")
 
 
 if __name__ == "__main__":
