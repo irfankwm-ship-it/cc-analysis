@@ -80,6 +80,16 @@ _UNTRANSLATED_WORDS = {
     "initiative": "倡议",
     "framework": "框架",
     "stakeholder": "利益相关方",
+    # Media and journalism terms
+    "footage": "视频",
+    "decisively": "决定性地",
+    "exclusively": "独家",
+    "allegedly": "据称",
+    "reportedly": "据报道",
+    # Common verbs
+    "rebalancing": "再平衡",
+    "rallies": "团结",
+    "benefiting": "惠及",
 }
 
 
