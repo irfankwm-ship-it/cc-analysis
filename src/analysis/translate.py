@@ -96,6 +96,12 @@ _UNTRANSLATED_WORDS = {
     "listing": "上市",
     "standoff": "对峙",
     "stalls": "拖延",
+    # Scientific/academic terms
+    "alpine": "高山",
+    "abrupt": "突然的",
+    "shift": "变化",
+    "abrupt shift": "突变",
+    "resilience": "韧性",
 }
 
 
