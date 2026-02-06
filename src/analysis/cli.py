@@ -32,7 +32,11 @@ from analysis.entities import (
 from analysis.llm import llm_generate_perspectives, llm_summarize
 from analysis.output import assemble_briefing, validate_briefing, write_archive, write_processed
 from analysis.tension_index import compute_tension_index
-from analysis.translate import translate_to_chinese, translate_to_english
+from analysis.translate import (
+    _clean_partial_translation,
+    translate_to_chinese,
+    translate_to_english,
+)
 from analysis.trend import compute_trends
 from analysis.volume_compiler import compile_volume, write_volume
 
@@ -1007,6 +1011,21 @@ def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, An
         new_count,
         retranslate_count,
     )
+
+    # Final cleanup pass: fix any remaining English fragments in ALL Chinese text
+    # This catches deduped signals and other edge cases
+    cleaned_count = 0
+    for s in signals:
+        for field in ("title", "body"):
+            if field in s and isinstance(s[field], dict) and "zh" in s[field]:
+                original = s[field]["zh"]
+                cleaned = _clean_partial_translation(original)
+                if cleaned != original:
+                    s[field]["zh"] = cleaned
+                    cleaned_count += 1
+    if cleaned_count > 0:
+        logger.info("Final cleanup fixed %d Chinese text fields", cleaned_count)
+
     return signals
 
 

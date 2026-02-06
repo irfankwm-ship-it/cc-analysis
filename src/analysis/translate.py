@@ -102,12 +102,19 @@ def _clean_partial_translation(text: str) -> str:
 
     # Pattern: English word followed by Chinese translation in parentheses
     # e.g., "capitulation（投降）" -> "投降"
-    # Also handles "capitulation (投降)" with space
-    result = re.sub(
-        r'\b([A-Za-z]+(?:-[A-Za-z]+)?)\s*[（(]([^）)]+)[）)]',
-        r'\2',
-        text
-    )
+    # e.g., "的 capitulation （投降）" -> "的投降"
+    # e.g., "的capitulation（投降）" -> "的投降"
+    # Only applies to text with Chinese characters (avoids modifying pure English)
+    has_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
+    if has_chinese:
+        # Remove optional leading space, English word, optional space, and parenthesized Chinese
+        result = re.sub(
+            r'\s*([A-Za-z]+(?:-[A-Za-z]+)?)\s*[（(]([^）)]+)[）)]',
+            r'\2',
+            text
+        )
+    else:
+        result = text
 
     # Replace common untranslated words (case-insensitive)
     for en_word, zh_word in _UNTRANSLATED_WORDS.items():
