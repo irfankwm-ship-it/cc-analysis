@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 _OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_K_M")
-_TIMEOUT = 120
+_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "120"))  # Configurable via env var
 
 
 def _call_ollama(prompt: str) -> str | None:

@@ -107,6 +107,37 @@ def _fallback_category(text: str) -> str:
     return "political"
 
 
+# Finance/business indicators that should boost "economic" category
+_FINANCE_INDICATORS = [
+    r'\bIPO\b',
+    r'\b(?:share|stock) price\b',
+    r'\bmarket cap\b',
+    r'\bquarterly (?:results|earnings|revenue)\b',
+    r'\bannual (?:results|report|revenue)\b',
+    r'\b(?:revenue|profit|loss|earnings) (?:of|rose|fell|grew|dropped|surged)\b',
+    r'\$[\d,.]+\s*(?:billion|million|bn|m)\b',
+    r'\b\d+(?:\.\d+)?%\s+(?:growth|decline|rise|fall|gain|drop)\b',
+    r'\blisted on\b.*\b(?:exchange|nasdaq|nyse|hkex|sse|szse)\b',
+    r'\bgoing public\b',
+    r'\braises? \$?\d+',
+    r'\bfunding round\b',
+    r'\bvaluation\b',
+]
+
+
+def _has_strong_finance_signal(text: str) -> bool:
+    """Check if text has strong financial/business signals.
+
+    These signals indicate the story is primarily about business/economics,
+    even if it mentions technology companies or products.
+    """
+    text_lower = text.lower()
+    for pattern in _FINANCE_INDICATORS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return True
+    return False
+
+
 def classify_category(
     text: str,
     categories_dict: dict[str, dict[str, list[str]]],
@@ -135,6 +166,12 @@ def classify_category(
 
     if not scores or max(scores.values()) == 0:
         return _fallback_category(text)
+
+    # Boost "economic" if strong finance signals are present
+    # This ensures IPO/earnings stories aren't classified as "technology"
+    # just because they mention a tech company
+    if _has_strong_finance_signal(text):
+        scores["economic"] = scores.get("economic", 0) + 6  # +2 keyword equivalent
 
     max_score = max(scores.values())
     # Tie-breaking: prefer more specific categories (fewer total keywords)

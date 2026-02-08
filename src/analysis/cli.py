@@ -1133,13 +1133,80 @@ _CHINA_KEYWORDS = [
 
 # Broader China-relevance keywords for the analysis pipeline gate.
 # A signal must mention at least one of these to be considered relevant.
+# Includes both English AND Chinese keywords to catch Chinese-language sources.
 _CHINA_RELEVANCE_KEYWORDS = [
+    # English keywords
     "china", "chinese", "beijing", "prc", "taiwan", "hong kong",
     "xinjiang", "tibet", "shanghai", "shenzhen", "guangdong",
     "xi jinping", "cpc", "pla", "state council", "npc",
     "huawei", "tiktok", "yuan", "renminbi",
     "south china sea", "one country two systems",
     "canada-china", "sino-canadian", "sino-",
+    # Chinese keywords (Simplified)
+    "中国", "中华", "北京", "台湾", "香港",
+    "新疆", "西藏", "上海", "深圳", "广东",
+    "习近平", "国务院", "全国人大", "政协",
+    "外交部", "商务部", "人民银行",
+    "华为", "人民币", "南海",
+    "一带一路", "一国两制",
+    "加拿大", "渥太华", "特鲁多",
+    # Chinese keywords (Traditional - for Taiwan/HK sources)
+    "臺灣", "台灣", "維吾爾", "兩岸",
+    "國務院", "習近平", "華為",
+    # Common Chinese government/policy terms
+    "中共", "党中央", "中央军委", "解放军",
+    "发改委", "财政部", "央行",
+    # Taiwan-specific keywords (Traditional)
+    "軍售", "國防部", "立法院", "民進黨", "國民黨",
+    "AIT", "美台", "美方", "中共", "反共",
+]
+
+# Keywords indicating LOW-VALUE signals to exclude
+# These are signals that mention China geographically but lack policy relevance
+_LOW_VALUE_PATTERNS = [
+    # Tabloid / accidents / crime without policy angle
+    r"\b(?:car accident|traffic accident|crash kills?|dead in|dies? in)\b",
+    r"\b(?:murder|stabbing|assault|robbery|theft|arson)\b",
+    r"\b(?:celebrity|gossip|dating|romance|wedding|divorce)\b",
+    r"\b(?:sports? (?:star|team)|athlete|tournament|championship|world cup)\b",
+    # Pure science without policy implications
+    r"\b(?:fossil|dinosaur|archaeological? find|excavation|paleontolog)\b",
+    r"\b(?:species discovered|new species|wildlife|biodiversity)\b",
+    r"ecological resilience|marsh ecosystem|alpine ecosystem",
+    # Entertainment / lifestyle
+    r"\b(?:movie|film release|box office|streaming|concert|music video)\b",
+    r"\b(?:fashion|beauty|makeup|cosmetic|skincare)\b",
+    r"\b(?:food|restaurant|recipe|cuisine|chef)\b",
+    # Weather / natural disasters (unless policy-related)
+    r"\b(?:earthquake|typhoon|flood|landslide)\b(?!.*(?:policy|aid|relief|government))",
+]
+
+# Keywords indicating HIGH-VALUE signals to boost
+_HIGH_VALUE_KEYWORDS = [
+    # Canada-China bilateral (English)
+    "canada-china", "canadian government", "ottawa", "trudeau", "carney",
+    "global affairs canada", "parliament", "bill c-",
+    # Major China policy (English)
+    "xi jinping", "state council", "politburo", "communist party",
+    "foreign ministry", "mfa", "ministry of foreign affairs",
+    # Geopolitical significance (English)
+    "sanctions", "tariff", "trade war", "export ban", "entity list",
+    "five eyes", "aukus", "quad", "indo-pacific", "south china sea",
+    # Tech/security (English)
+    "huawei", "tiktok", "semiconductor", "rare earth", "5g",
+    "cyber", "espionage", "interference", "national security",
+    # Human rights / values (English)
+    "uyghur", "xinjiang", "hong kong", "tibet", "human rights",
+    "censorship", "democracy", "crackdown",
+    # Chinese keywords - Major policy
+    "习近平", "国务院", "中央军委", "政治局", "中共中央",
+    "外交部", "商务部", "发改委",
+    # Chinese keywords - Geopolitical
+    "制裁", "关税", "贸易战", "南海", "台海", "两岸",
+    # Chinese keywords - Tech/security
+    "华为", "半导体", "芯片", "稀土", "网络安全",
+    # Chinese keywords - Canada
+    "加拿大", "渥太华", "特鲁多", "加中关系",
 ]
 
 
@@ -1158,6 +1225,182 @@ def _is_china_relevant(signal: dict[str, Any]) -> bool:
         body = body.get("en", "")
     text = f"{title} {body}".lower()
     return any(kw in text for kw in _CHINA_RELEVANCE_KEYWORDS)
+
+
+def _compute_signal_value(signal: dict[str, Any]) -> tuple[int, str]:
+    """Compute a value score for a signal to filter out low-quality content.
+
+    Returns:
+        Tuple of (score, reason) where:
+        - score >= 2: High value, include
+        - score == 1: Medium value, include if space
+        - score <= 0: Low value, exclude
+
+    Scoring:
+        +3: Direct Canada-China bilateral angle
+        +2: Major China policy/political news
+        +1: Contains high-value keyword
+        -2: Matches low-value pattern (tabloid, pure science, etc.)
+    """
+    title = signal.get("title", "")
+    body = signal.get("body_snippet", signal.get("body", ""))
+    if isinstance(title, dict):
+        title = title.get("en", "")
+    if isinstance(body, dict):
+        body = body.get("en", "")
+
+    text = f"{title} {body}".lower()
+    title_lower = title.lower()
+    score = 0
+    reasons = []
+
+    # Check for low-value patterns (tabloid, accidents, pure science)
+    for pattern in _LOW_VALUE_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            score -= 2
+            reasons.append(f"low-value pattern: {pattern[:30]}")
+            break  # Only penalize once
+
+    # Check for high-value keywords
+    high_value_count = 0
+    for kw in _HIGH_VALUE_KEYWORDS:
+        if kw in text:
+            high_value_count += 1
+
+    if high_value_count >= 3:
+        score += 2
+        reasons.append("multiple high-value keywords")
+    elif high_value_count >= 1:
+        score += 1
+        reasons.append("high-value keyword")
+
+    # Direct bilateral angle (Canada + China in title)
+    if any(kw in title_lower for kw in ["canada", "canadian", "ottawa"]):
+        if any(kw in title_lower for kw in ["china", "chinese", "beijing"]):
+            score += 3
+            reasons.append("bilateral in title")
+
+    # Policy signals from official sources get a boost
+    source = signal.get("source", "")
+    if isinstance(source, dict):
+        source = source.get("en", "")
+    source_lower = source.lower()
+    if any(s in source_lower for s in ["global affairs", "parliament", "xinhua", "mfa", "mofcom"]):
+        score += 1
+        reasons.append("official source")
+
+    # Canadian media sources get a boost (ensure Canadian perspective in briefing)
+    if any(s in source_lower for s in ["globe and mail", "cbc", "macdonald-laurier", "national post"]):
+        score += 2
+        reasons.append("Canadian source")
+
+    # Chinese-language sources get a boost (ensure Chinese perspective in briefing)
+    # This includes mainland, HK, and Taiwan sources
+    if any(s in source_lower for s in [
+        "人民日报", "新华", "环球时报", "财新", "澎湃", "界面", "36氪",
+        "自由時報", "中央社", "香港電台", "南华早报",
+        "中国数字时代", "rthk", "scmp",
+    ]):
+        score += 2
+        reasons.append("Chinese source")
+
+    reason_str = "; ".join(reasons) if reasons else "baseline"
+    return (score, reason_str)
+
+
+# Canadian sources we want to ensure appear in briefings
+_CANADIAN_SOURCES = {
+    "globe and mail", "cbc", "cbc politics", "national post",
+    "macdonald-laurier", "global affairs canada", "parliament of canada",
+    "canadian press", "toronto star",
+}
+
+
+def _filter_low_value_signals(
+    signals: list[dict[str, Any]],
+    min_score: int = 0,
+) -> list[dict[str, Any]]:
+    """Filter out low-value signals based on content analysis.
+
+    Removes signals that are likely tabloid content, random accidents,
+    pure science without policy relevance, etc.
+
+    Args:
+        signals: List of signals to filter.
+        min_score: Minimum value score to keep (default 0).
+
+    Returns:
+        Filtered list of signals with value scores attached.
+    """
+    kept = []
+    dropped = []
+
+    for signal in signals:
+        score, reason = _compute_signal_value(signal)
+        signal["_value_score"] = score
+        signal["_value_reason"] = reason
+
+        if score >= min_score:
+            kept.append(signal)
+        else:
+            title = signal.get("title", "")
+            if isinstance(title, dict):
+                title = title.get("en", "")
+            dropped.append((title[:60], score, reason))
+
+    if dropped:
+        logger.info(
+            "Value filter: dropped %d low-value signals (min_score=%d)",
+            len(dropped), min_score,
+        )
+        for title, score, reason in dropped[:5]:  # Log first 5
+            logger.debug("  Dropped: %s (score=%d, %s)", title, score, reason)
+
+    # Source diversity check: warn if no Canadian sources
+    _log_source_diversity(kept)
+
+    return kept
+
+
+def _log_source_diversity(signals: list[dict[str, Any]]) -> None:
+    """Log source diversity statistics and warn about missing Canadian sources."""
+    from collections import Counter
+
+    sources = []
+    canadian_count = 0
+
+    for s in signals:
+        source = s.get("source", "")
+        if isinstance(source, dict):
+            source = source.get("en", "")
+        source_lower = source.lower()
+        sources.append(source)
+
+        # Check if it's a Canadian source
+        if any(cs in source_lower for cs in _CANADIAN_SOURCES):
+            canadian_count += 1
+
+    # Count unique sources
+    source_counts = Counter(sources)
+    unique_sources = len(source_counts)
+
+    logger.info(
+        "Source diversity: %d signals from %d unique sources",
+        len(signals), unique_sources,
+    )
+
+    # Log top sources
+    for source, count in source_counts.most_common(5):
+        logger.debug("  %s: %d signals", source, count)
+
+    # Warn if no Canadian sources
+    if canadian_count == 0 and len(signals) > 0:
+        logger.warning(
+            "Source diversity warning: No Canadian sources in briefing. "
+            "Consider reviewing fetcher RSS feeds or keyword filters."
+        )
+    else:
+        logger.info("Canadian sources: %d signals", canadian_count)
 
 
 def _is_bilateral(signal: dict[str, Any]) -> bool:
@@ -1840,6 +2083,15 @@ def run(
         logger.info(
             "China-relevance filter: dropped %d of %d signals",
             pre_count - len(raw_signals), pre_count,
+        )
+
+    # Value filter: drop low-value signals (tabloid, accidents, pure science)
+    pre_count = len(raw_signals)
+    raw_signals = _filter_low_value_signals(raw_signals, min_score=0)
+    if len(raw_signals) < pre_count:
+        logger.info(
+            "Value filter: kept %d of %d signals",
+            len(raw_signals), pre_count,
         )
 
     # Pre-classify: add category and entity_ids to raw signals for dedup
