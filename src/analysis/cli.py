@@ -392,9 +392,11 @@ _SOURCE_NAME_TRANSLATIONS: dict[str, str] = {
     "联合报": "United Daily News",
     # Diaspora
     "中国数字时代": "China Digital Times",
-    # BBC
+    # International Chinese media
     "BBC中文": "BBC Chinese",
     "BBC中文网": "BBC Chinese",
+    "德国之声": "DW Chinese",
+    "德國之聲": "DW Chinese",
 }
 
 
@@ -743,6 +745,11 @@ def _summarize_body(text: str, title: str, max_chars: int = 500) -> str:
     """
     if not text:
         return ""
+
+    # Clean up ECNS-style artifacts: "[heading] Text:AAAPrint..."
+    text = re.sub(r'^\s*\[heading\]\s*Text:AAAPrint[^\n]*\n*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^ECNS Wire\s*\(ECNS\)\s*[-–—]\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^Ecns wire\s*\(ECNS\)\s*[-–—]\s*', '', text, flags=re.IGNORECASE)
 
     # Remove website boilerplate first
     text = _remove_boilerplate(text)
