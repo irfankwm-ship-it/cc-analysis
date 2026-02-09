@@ -1258,7 +1258,8 @@ _CHINA_RELEVANCE_KEYWORDS = [
 # These are signals that mention China geographically but lack policy relevance
 _LOW_VALUE_PATTERNS = [
     # Tabloid / accidents / crime without policy angle
-    r"\b(?:car accident|traffic accident|crash kills?|dead in|dies? in)\b",
+    r"\b(?:car accident|traffic accident|car crash|killed in.*(?:crash|accident))\b",
+    r"\b(?:crash kills?|dead in|dies? in|death toll)\b",
     r"\b(?:murder|stabbing|assault|robbery|theft|arson)\b",
     r"\b(?:celebrity|gossip|dating|romance|wedding|divorce)\b",
     r"\b(?:sports? (?:star|team)|athlete|tournament|championship|world cup)\b",
