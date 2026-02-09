@@ -359,6 +359,65 @@ _CHINESE_DOMAINS: set[str] = {
     "bbc.com/zhongwen", "bbc.co.uk/zhongwen",
 }
 
+# Source name translations: Chinese → English
+_SOURCE_NAME_TRANSLATIONS: dict[str, str] = {
+    # Mainland official
+    "人民日报": "People's Daily",
+    "新华社": "Xinhua",
+    "新华网": "Xinhua",
+    "环球时报": "Global Times",
+    "中国日报": "China Daily",
+    "外交部": "MFA China",
+    "商务部": "MOFCOM",
+    "国务院": "State Council",
+    # Mainland business/tech
+    "财新": "Caixin",
+    "财新网": "Caixin",
+    "澎湃": "The Paper",
+    "澎湃新闻": "The Paper",
+    "界面": "Jiemian",
+    "界面新闻": "Jiemian",
+    "36氪": "36Kr",
+    "亿邦动力": "Yibang",
+    # Hong Kong
+    "南华早报": "SCMP",
+    "香港電台": "RTHK",
+    "香港电台": "RTHK",
+    # Taiwan
+    "自由時報": "Liberty Times",
+    "自由時報國際": "Liberty Times",
+    "自由时报": "Liberty Times",
+    "中央社": "CNA Taiwan",
+    "聯合報": "United Daily News",
+    "联合报": "United Daily News",
+    # Diaspora
+    "中国数字时代": "China Digital Times",
+    # BBC
+    "BBC中文": "BBC Chinese",
+    "BBC中文网": "BBC Chinese",
+}
+
+
+def _translate_source_name(source: str) -> dict[str, str]:
+    """Translate a source name to bilingual format.
+
+    If source is in Chinese, looks up translation; otherwise uses as-is.
+    """
+    if not source:
+        return {"en": "", "zh": ""}
+
+    # Check if source is in translation dictionary
+    if source in _SOURCE_NAME_TRANSLATIONS:
+        return {"en": _SOURCE_NAME_TRANSLATIONS[source], "zh": source}
+
+    # Check partial matches (for variations like "自由時報國際")
+    for zh_name, en_name in _SOURCE_NAME_TRANSLATIONS.items():
+        if zh_name in source:
+            return {"en": en_name, "zh": source}
+
+    # Not a known Chinese source, use as-is
+    return {"en": source, "zh": source}
+
 
 def _is_chinese_source(signal: dict[str, Any]) -> bool:
     """Detect if a signal originates from a Chinese-language source.
@@ -818,7 +877,19 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
         # Translate to English for summarization
         raw_body = translate_to_english([raw_body])[0]
         if title_str:
-            title_str = translate_to_english([title_str])[0]
+            translated_title = translate_to_english([title_str])[0]
+            # Validate translation succeeded (not still Chinese)
+            if _is_primarily_chinese(translated_title):
+                # Retry translation
+                logger.warning("Title translation failed, retrying: %.50s", title_str)
+                translated_title = translate_to_english([title_str])[0]
+            # If still Chinese after retry, keep original (will be flagged later)
+            if not _is_primarily_chinese(translated_title):
+                title_str = translated_title
+            else:
+                logger.warning("Title translation retry failed: %.50s", title_str)
+                # Mark for later handling
+                s["_translation_failed"] = True
 
     # Store preserved content for _translate_signals_batch to use
     if preserved_zh_title:
@@ -842,11 +913,18 @@ def _normalize_signal(signal: dict[str, Any]) -> dict[str, Any]:
                 s["body"] = llm_result
 
     # Bilingual text fields
-    for key in ("title", "body", "source"):
+    for key in ("title", "body"):
         if key in s:
             s[key] = _to_bilingual(s[key])
         else:
             s[key] = {"en": "", "zh": ""}
+
+    # Source name: use translation dictionary for Chinese sources
+    source_val = s.get("source", "")
+    if isinstance(source_val, dict):
+        s["source"] = source_val
+    else:
+        s["source"] = _translate_source_name(str(source_val))
 
     # Normalize date to YYYY-MM-DD
     raw_date = s.get("date", "")
@@ -925,6 +1003,21 @@ def _has_english_fragments(text: str, threshold: float = 0.15) -> bool:
     if total_chars == 0:
         return False
     return (ascii_letters / total_chars) > threshold
+
+
+def _is_primarily_chinese(text: str) -> bool:
+    """Check if text is primarily Chinese (CJK characters).
+
+    Used to detect when ZH→EN translation failed and returned Chinese.
+    """
+    if not text:
+        return False
+    cjk_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    total_chars = sum(1 for c in text if not c.isspace())
+    if total_chars == 0:
+        return False
+    # If more than 30% is CJK, consider it Chinese
+    return (cjk_chars / total_chars) > 0.3
 
 
 def _translate_signals_batch(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1492,11 +1585,14 @@ def _filter_and_prioritize_signals(
             return "SCMP"
         return src or "unknown"
 
-    def _round_robin(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _round_robin(signals: list[dict[str, Any]], max_per_source: int = 3) -> list[dict[str, Any]]:
         from collections import defaultdict
         buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for s in signals:
             buckets[_source_key(s)].append(s)
+        # Cap each source to max_per_source signals to ensure diversity
+        for k in buckets:
+            buckets[k] = buckets[k][:max_per_source]
         # Sort source groups: smaller groups first (ensures minority sources
         # get picked before they run out)
         sorted_keys = sorted(buckets.keys(), key=lambda k: len(buckets[k]))
@@ -2161,6 +2257,28 @@ def run(
     # Step 2b: Translate to Chinese (batch)
     logger.info("Translating signals to Chinese...")
     classified_signals = _translate_signals_batch(classified_signals)
+
+    # Step 2c: Quality filter - remove signals with issues
+    pre_count = len(classified_signals)
+    quality_filtered = []
+    for s in classified_signals:
+        # Skip signals with empty bodies (headline-only)
+        body_en = s.get("body", {}).get("en", "")
+        if not body_en or len(body_en.strip()) < 20:
+            logger.debug("Dropping signal with empty body: %s", s.get("title", {}).get("en", "")[:50])
+            continue
+        # Skip signals where EN title is still Chinese (translation failed)
+        title_en = s.get("title", {}).get("en", "")
+        if _is_primarily_chinese(title_en):
+            logger.warning("Dropping signal with untranslated title: %s", title_en[:50])
+            continue
+        quality_filtered.append(s)
+    classified_signals = quality_filtered
+    if len(classified_signals) < pre_count:
+        logger.info(
+            "Quality filter: dropped %d signals (empty body or translation failure)",
+            pre_count - len(classified_signals),
+        )
 
     # Step 3: Compute trends (load previous day data)
     logger.info("Computing trends...")
