@@ -32,17 +32,17 @@ from analysis.entities import (
 from analysis.llm import llm_generate_perspectives, llm_summarize
 from analysis.output import assemble_briefing, validate_briefing, write_archive, write_processed
 from analysis.tension_index import compute_tension_index
+from analysis.timeline_compiler import (
+    compile_canada_china_timeline,
+    mark_signal_as_milestone,
+    write_timeline,
+)
 from analysis.translate import (
     _clean_partial_translation,
     translate_to_chinese,
     translate_to_english,
 )
 from analysis.trend import compute_trends
-from analysis.timeline_compiler import (
-    compile_canada_china_timeline,
-    mark_signal_as_milestone,
-    write_timeline,
-)
 from analysis.volume_compiler import compile_volume, write_volume
 
 logger = logging.getLogger("analysis")
@@ -1384,7 +1384,8 @@ def _compute_signal_value(signal: dict[str, Any]) -> tuple[int, str]:
         reasons.append("official source")
 
     # Canadian media sources get a boost (ensure Canadian perspective in briefing)
-    if any(s in source_lower for s in ["globe and mail", "cbc", "macdonald-laurier", "national post"]):
+    canadian_sources = ["globe and mail", "cbc", "macdonald-laurier", "national post"]
+    if any(s in source_lower for s in canadian_sources):
         score += 2
         reasons.append("Canadian source")
 
@@ -1586,7 +1587,9 @@ def _filter_and_prioritize_signals(
             return "SCMP"
         return src or "unknown"
 
-    def _round_robin(signals: list[dict[str, Any]], max_per_source: int = 3) -> list[dict[str, Any]]:
+    def _round_robin(
+        signals: list[dict[str, Any]], max_per_source: int = 3
+    ) -> list[dict[str, Any]]:
         from collections import defaultdict
         buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for s in signals:
@@ -2266,7 +2269,8 @@ def run(
         # Skip signals with empty bodies (headline-only)
         body_en = s.get("body", {}).get("en", "")
         if not body_en or len(body_en.strip()) < 20:
-            logger.debug("Dropping signal with empty body: %s", s.get("title", {}).get("en", "")[:50])
+            title_preview = s.get("title", {}).get("en", "")[:50]
+            logger.debug("Dropping signal with empty body: %s", title_preview)
             continue
         # Skip signals where EN title is still Chinese (translation failed)
         title_en = s.get("title", {}).get("en", "")
