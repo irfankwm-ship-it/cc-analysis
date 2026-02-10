@@ -19,6 +19,113 @@ from analysis.llm import llm_translate, llm_translate_strict
 logger = logging.getLogger(__name__)
 
 
+# Known figures with their correct gender for pronoun correction
+# Format: {"name_lowercase": "gender"}  where gender is "female" or "male"
+_KNOWN_FIGURES_GENDER = {
+    # Japanese politicians
+    "sanae takaichi": "female",
+    "takaichi": "female",
+    "高市早苗": "female",
+    "yoko kamikawa": "female",
+    "kamikawa": "female",
+    "上川陽子": "female",
+    "tomomi inada": "female",
+    "稲田朋美": "female",
+    # Taiwan politicians
+    "tsai ing-wen": "female",
+    "蔡英文": "female",
+    "hsiao bi-khim": "female",
+    "萧美琴": "female",
+    "蕭美琴": "female",
+    # Chinese politicians
+    "sun chunlan": "female",
+    "孙春兰": "female",
+    "fu ying": "female",
+    "傅莹": "female",
+    "hua chunying": "female",
+    "华春莹": "female",
+    "mao ning": "female",
+    "毛宁": "female",
+    # Hong Kong
+    "carrie lam": "female",
+    "林郑月娥": "female",
+    # US politicians
+    "nancy pelosi": "female",
+    "pelosi": "female",
+    "janet yellen": "female",
+    "yellen": "female",
+    "gina raimondo": "female",
+    "raimondo": "female",
+    "katherine tai": "female",
+    # Canadian politicians
+    "chrystia freeland": "female",
+    "freeland": "female",
+    "melanie joly": "female",
+    "joly": "female",
+    "mary ng": "female",
+    # Business
+    "mary barra": "female",
+    "lisa su": "female",
+}
+
+
+def fix_gender_pronouns(text: str) -> str:
+    """Fix incorrect gender pronouns for known public figures.
+
+    Detects mentions of known figures and corrects he/his/him to she/her/hers
+    or vice versa based on the figure's actual gender.
+
+    Args:
+        text: Text to correct.
+
+    Returns:
+        Text with corrected pronouns.
+    """
+    import re
+
+    if not text:
+        return text
+
+    text_lower = text.lower()
+    result = text
+
+    for name, gender in _KNOWN_FIGURES_GENDER.items():
+        if name in text_lower:
+            if gender == "female":
+                # Fix male pronouns to female when this name is nearby
+                # Look for pronoun within ~50 chars of name mention
+                name_positions = [m.start() for m in re.finditer(re.escape(name), text_lower)]
+                for pos in name_positions:
+                    # Window around name mention
+                    start = max(0, pos - 50)
+                    end = min(len(result), pos + len(name) + 100)
+                    window = result[start:end]
+
+                    # Replace male pronouns with female (case-sensitive)
+                    # Only replace standalone words, not parts of other words
+                    corrections = [
+                        (r'\bhis\b', 'her'),
+                        (r'\bHis\b', 'Her'),
+                        (r'\bHIS\b', 'HER'),
+                        (r'\bhim\b', 'her'),
+                        (r'\bHim\b', 'Her'),
+                        (r'\bhe\b', 'she'),
+                        (r'\bHe\b', 'She'),
+                        (r'\bHE\b', 'SHE'),
+                    ]
+                    new_window = window
+                    for pattern, replacement in corrections:
+                        new_window = re.sub(pattern, replacement, new_window)
+
+                    if new_window != window:
+                        result = result[:start] + new_window + result[end:]
+                        # Update text_lower to match
+                        text_lower = result.lower()
+            # Note: male pronoun correction could be added similarly if needed
+
+    return result
+
+
 def _contains_untranslated_english(text: str, threshold: float = 0.15) -> bool:
     """Detect if Chinese text contains significant untranslated English.
 
@@ -309,5 +416,16 @@ def translate_to_english(texts: list[str]) -> list[str]:
     """Translate a list of Chinese texts to English.
 
     LLM primary, MyMemory fallback. Returns original texts for any that fail.
+    Also applies gender pronoun corrections for known figures.
     """
-    return _translate_batch(texts, "zh", "en", "zh-CN|en")
+    results = _translate_batch(texts, "zh", "en", "zh-CN|en")
+    # Apply pronoun corrections to English output
+    return [fix_gender_pronouns(t) for t in results]
+
+
+def fix_english_text(text: str) -> str:
+    """Apply corrections to English text including gender pronouns.
+
+    Use this for English text that wasn't translated (original EN sources).
+    """
+    return fix_gender_pronouns(text)

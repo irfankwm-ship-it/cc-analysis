@@ -39,6 +39,7 @@ from analysis.timeline_compiler import (
 )
 from analysis.translate import (
     _clean_partial_translation,
+    fix_english_text,
     translate_to_chinese,
     translate_to_english,
 )
@@ -2284,6 +2285,17 @@ def run(
         if _is_primarily_chinese(title_en):
             logger.warning("Dropping signal with untranslated title: %s", title_en[:50])
             continue
+
+        # Fix gender pronouns for known figures in English content
+        if title_en:
+            fixed_title = fix_english_text(title_en)
+            if fixed_title != title_en:
+                s["title"]["en"] = fixed_title
+        if body_en:
+            fixed_body = fix_english_text(body_en)
+            if fixed_body != body_en:
+                s["body"]["en"] = fixed_body
+
         quality_filtered.append(s)
     classified_signals = quality_filtered
     if len(classified_signals) < pre_count:

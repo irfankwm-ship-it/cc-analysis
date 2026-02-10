@@ -124,6 +124,44 @@ _FINANCE_INDICATORS = [
     r'\bvaluation\b',
 ]
 
+# Industrial accident/disaster indicators - should NOT be classified as "technology"
+# These are local news stories about accidents, explosions, disasters
+_ACCIDENT_INDICATORS = [
+    r'\bexplosion\b',
+    r'\bexploded\b',
+    r'\bfatal\b',
+    r'\bfatalities\b',
+    r'\bkilled\b',
+    r'\bdeath toll\b',
+    r'\binjured\b',
+    r'\binjuries\b',
+    r'\baccident\b',
+    r'\bcrash\b',
+    r'\bcollapse\b',
+    r'\bcollapsed\b',
+    r'\bfire\b',
+    r'\bblaze\b',
+    r'\bdisaster\b',
+    r'\bworkshop\b.*\b(?:explosion|fire|accident)\b',
+    r'\bfactory\b.*\b(?:explosion|fire|accident)\b',
+    r'\bplant\b.*\b(?:explosion|fire|accident)\b',
+    r'\binvestigation\b.*\b(?:explosion|accident|death)\b',
+    r'\bprobe\b.*\b(?:explosion|accident|fatal)\b',
+]
+
+
+def _is_accident_story(text: str) -> bool:
+    """Check if text describes an industrial accident or disaster.
+
+    These stories should NOT be classified as "technology" even if they
+    mention a tech/biotech company.
+    """
+    text_lower = text.lower()
+    for pattern in _ACCIDENT_INDICATORS:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return True
+    return False
+
 
 def _has_strong_finance_signal(text: str) -> bool:
     """Check if text has strong financial/business signals.
@@ -172,6 +210,15 @@ def classify_category(
     # just because they mention a tech company
     if _has_strong_finance_signal(text):
         scores["economic"] = scores.get("economic", 0) + 6  # +2 keyword equivalent
+
+    # Prevent accident/disaster stories from being classified as "technology"
+    # These are local news, not technology stories, even if they involve a tech company
+    if _is_accident_story(text):
+        # Heavily penalize "technology" and boost "economic" (industrial)
+        scores["technology"] = max(0, scores.get("technology", 0) - 9)
+        # If it's industrial, classify as economic; otherwise let other categories win
+        if scores.get("technology", 0) == max(scores.values()):
+            scores["economic"] = scores.get("economic", 0) + 3
 
     max_score = max(scores.values())
     # Tie-breaking: prefer more specific categories (fewer total keywords)
