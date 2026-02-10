@@ -524,15 +524,16 @@ class TestEntityDedup:
 
     def test_entity_dedup_stats(self):
         """Entity+body dedup should be tracked in stats."""
+        # Use very different titles so title+body doesn't trigger first
         signals = [
             {
-                "title": "MFA criticizes Canada",
+                "title": "Xi warns about economic headwinds",
                 "body_text": "Spokesperson condemned interference in Taiwan affairs.",
                 "entities": ["mfa", "taiwan"],
                 "category": "diplomatic",
             },
             {
-                "title": "China foreign ministry on Canada",
+                "title": "Press briefing on regional tensions",
                 "body_text": "Spokesperson condemned interference in Taiwan affairs.",
                 "entities": ["mfa", "taiwan"],
                 "category": "diplomatic",
@@ -546,6 +547,6 @@ class TestEntityDedup:
 # ── Lookback configuration ─────────────────────────────────────────────────
 
 class TestLookbackConfig:
-    def test_default_lookback_is_three_days(self):
-        """Default lookback reduced to 3 days for more signal throughput."""
-        assert DEFAULT_LOOKBACK_DAYS == 3
+    def test_default_lookback_is_seven_days(self):
+        """Default lookback extended to 7 days to prevent story repetition."""
+        assert DEFAULT_LOOKBACK_DAYS == 7

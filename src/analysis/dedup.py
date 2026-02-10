@@ -39,12 +39,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 TITLE_EXACT_THRESHOLD_EN = 0.85   # Very likely same headline, minor edit
 TITLE_EXACT_THRESHOLD_ZH = 0.70   # Lower for Chinese (shorter headlines)
-TITLE_FUZZY_LOW = 0.50            # Worth checking body overlap
-BODY_JACCARD_THRESHOLD = 0.60     # Same substantive content
-ENTITY_BODY_JACCARD_THRESHOLD = 0.50  # Lower threshold when entities match
+TITLE_FUZZY_LOW = 0.35            # Trigger body check for moderately similar titles
+BODY_JACCARD_THRESHOLD = 0.50     # Same substantive content (lowered from 0.60)
+ENTITY_BODY_JACCARD_THRESHOLD = 0.40  # Lower threshold when entities match
+
+# Key names that commonly appear in Canada-China news
+# Used for same-person dedup to catch "Jimmy Lai sentenced" vs "Lai gets 20 years"
+_KEY_NAMES = frozenset({
+    "jimmy lai", "lai", "xi jinping", "xi", "trudeau", "carney",
+    "trump", "biden", "takaichi", "meng wanzhou", "meng",
+    "kovrig", "spavor", "schellenberg", "wang yi", "qin gang",
+    "joly", "freeland", "poilievre", "chow", "tong",
+})
+
+# Event verbs that indicate the same story type
+_EVENT_VERBS = frozenset({
+    "sentenced", "sentence", "arrest", "arrested", "detain", "detained",
+    "release", "released", "ban", "banned", "sanction", "sanctioned",
+    "announce", "announced", "meet", "meets", "visit", "visits",
+    "tariff", "tariffs", "warns", "warning", "threatens", "threat",
+})
 
 # Default lookback for cross-day deduplication
-DEFAULT_LOOKBACK_DAYS = 3
+DEFAULT_LOOKBACK_DAYS = 7
 
 # Stop words excluded from Jaccard body comparison.  Common words that
 # inflate similarity without indicating the same story.
@@ -88,6 +105,7 @@ class DedupStats:
     dropped_title: int = 0
     dropped_title_body: int = 0
     dropped_entity_body: int = 0
+    dropped_same_person_event: int = 0
 
     @property
     def total_dropped(self) -> int:
@@ -96,6 +114,7 @@ class DedupStats:
             + self.dropped_title
             + self.dropped_title_body
             + self.dropped_entity_body
+            + self.dropped_same_person_event
         )
 
 
@@ -188,6 +207,26 @@ def _extract_category(signal: dict[str, Any]) -> str:
     if isinstance(category, dict):
         category = category.get("en", "")
     return str(category).lower()
+
+
+def _extract_key_names(text: str) -> set[str]:
+    """Extract key person/entity names from text for same-event detection."""
+    text_lower = text.lower()
+    found = set()
+    for name in _KEY_NAMES:
+        if name in text_lower:
+            found.add(name)
+    return found
+
+
+def _extract_event_verbs(text: str) -> set[str]:
+    """Extract event verbs from text for same-event detection."""
+    text_lower = text.lower()
+    found = set()
+    for verb in _EVENT_VERBS:
+        if verb in text_lower:
+            found.add(verb)
+    return found
 
 
 def normalize_text(text: str) -> str:
@@ -338,6 +377,19 @@ def is_duplicate(
             if b_sim >= ENTITY_BODY_JACCARD_THRESHOLD:
                 return True, "entity+body"
 
+    # Tier 5: Same-person same-event dedup
+    # Catches "Jimmy Lai sentenced to 20 years" vs "Lai gets 20-year sentence"
+    names_a = _extract_key_names(title_a)
+    names_b = _extract_key_names(title_b)
+    verbs_a = _extract_event_verbs(title_a)
+    verbs_b = _extract_event_verbs(title_b)
+
+    if names_a and names_b and (names_a & names_b):
+        # Same person mentioned in both titles
+        if verbs_a and verbs_b and (verbs_a & verbs_b):
+            # Same event type (both mention sentencing, arrest, etc.)
+            return True, "same-person-event"
+
     return False, ""
 
 
@@ -447,6 +499,8 @@ def deduplicate_signals(
                     stats.dropped_title += 1
                 elif reason == "entity+body":
                     stats.dropped_entity_body += 1
+                elif reason == "same-person-event":
+                    stats.dropped_same_person_event += 1
                 else:
                     stats.dropped_title_body += 1
                 dup_found = True
@@ -485,7 +539,8 @@ def deduplicate_signals(
 
     stats.total_after = len(kept)
     logger.info(
-        "Dedup: %d → %d signals (-%d: url=%d, title=%d, title+body=%d, entity+body=%d)",
+        "Dedup: %d → %d signals (-%d: url=%d, title=%d, title+body=%d, "
+        "entity+body=%d, same-person=%d)",
         stats.total_before,
         stats.total_after,
         stats.total_dropped,
@@ -493,5 +548,6 @@ def deduplicate_signals(
         stats.dropped_title,
         stats.dropped_title_body,
         stats.dropped_entity_body,
+        stats.dropped_same_person_event,
     )
     return kept, stats
