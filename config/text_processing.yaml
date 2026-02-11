@@ -1,0 +1,55 @@
+# Text processing patterns for sentence scoring and boilerplate removal.
+# Used by text_processing module.
+
+filler_patterns:
+  - "^here (?:are|is) \\w+"
+  - "^(?:but |and |so |yet )"
+  - "^over the (?:past|last) \\w+"
+  - "^in recent (?:years|months)"
+  - "^(?:this|that) (?:comes?|came)"
+  - "never been (?:easier|harder)"
+  - "^in \\d{4},?\\s"
+  - "^(?:back )?in the \\d{4}s"
+  - "^more than (?:the|a) "
+  - "^after (?:finishing|completing|graduating)"
+  - "^(?:he|she|they) (?:was|were) (?:born|raised|assigned)"
+  - "^the \\d+-year-old"
+  - "^(?:one|two|three) of .{0,20}(?:most|first|last)"
+
+key_point_patterns:
+  - "(?:will|would|may|could|should) (?:continue|remain|face|see|lead|result)"
+  - "(?:is|are) (?:expected|likely|set|poised|preparing) to"
+  - "(?:announced?|unveiled?|revealed?|confirmed?) (?:that|plans?|a new)"
+  - "(?:according to|said|stated|noted|emphasized)"
+  - "(?:the|this) (?:move|decision|policy|measure|action) (?:will|would|could|may)"
+  - "(?:signals?|indicates?|suggests?|shows?|reflects?) (?:that|a |the )"
+  - "^(?:china|beijing|the (?:u\\.?s\\.?|us)|washington|canada|ottawa)"
+
+boilerplate_patterns:
+  # Privacy/cookie notices
+  - "(?:our |the )?privacy (?:statement|policy|notice)"
+  - "cookie (?:policy|notice|consent)"
+  - "by continuing to (?:browse|use|visit)"
+  - "you agree to (?:our |the )?use of cookies"
+  - "revised privacy policy"
+  - "terms of (?:use|service)"
+  # Footer/navigation
+  - "choose your language"
+  - "select (?:your )?language"
+  - "subscribe to (?:our )?newsletter"
+  - "sign up for (?:our )?newsletter"
+  - "follow us on"
+  - "share this (?:article|story)"
+  # Chinese boilerplate
+  - "互联网新闻信息(?:服务)?许可证"
+  - "disinformation report hotline"
+  - "举报电话"
+  - "备案号"
+  - "ICP备"
+  # Copyright
+  - "(?:©|copyright|\\(c\\))\\s*\\d{4}"
+  - "all rights reserved"
+  # Ad/promo
+  - "click here to"
+  - "read more:"
+  - "related (?:articles?|stories?|news):"

@@ -18,3 +18,23 @@ logging:
 validation:
   strict: true
   schema_file: briefing.schema.json
+
+thresholds:
+  dedup:
+    title_exact_en: 0.85
+    title_exact_zh: 0.70
+    title_fuzzy_low: 0.35
+    body_jaccard: 0.50
+    entity_body_jaccard: 0.40
+    lookback_days: 7
+  text_processing:
+    summary_max_chars: 500
+    min_sentence_len: 15
+  filtering:
+    recency_windows_hours: [72, 168]
+    min_signals: 10
+    max_signals: 75
+    max_per_source: 3
+  translation:
+    body_truncate_chars: 500
+    english_fragment_threshold: 0.15

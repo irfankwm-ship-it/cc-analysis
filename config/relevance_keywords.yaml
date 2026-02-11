@@ -1,0 +1,228 @@
+# Relevance and value-scoring keyword lists.
+# Used by signal_filtering module.
+
+china_relevance_keywords:
+  # English keywords
+  - china
+  - chinese
+  - beijing
+  - prc
+  - taiwan
+  - hong kong
+  - xinjiang
+  - tibet
+  - shanghai
+  - shenzhen
+  - guangdong
+  - xi jinping
+  - cpc
+  - pla
+  - state council
+  - npc
+  - huawei
+  - tiktok
+  - yuan
+  - renminbi
+  - south china sea
+  - one country two systems
+  - canada-china
+  - sino-canadian
+  - "sino-"
+  # Chinese keywords (Simplified)
+  - 中国
+  - 中华
+  - 北京
+  - 台湾
+  - 香港
+  - 新疆
+  - 西藏
+  - 上海
+  - 深圳
+  - 广东
+  - 习近平
+  - 国务院
+  - 全国人大
+  - 政协
+  - 外交部
+  - 商务部
+  - 人民银行
+  - 华为
+  - 人民币
+  - 南海
+  - 一带一路
+  - 一国两制
+  - 加拿大
+  - 渥太华
+  - 特鲁多
+  # Chinese keywords (Traditional - for Taiwan/HK sources)
+  - 臺灣
+  - 台灣
+  - 維吾爾
+  - 兩岸
+  - 國務院
+  - 習近平
+  - 華為
+  # Common Chinese government/policy terms
+  - 中共
+  - 党中央
+  - 中央军委
+  - 解放军
+  - 发改委
+  - 财政部
+  - 央行
+  # Taiwan-specific keywords (Traditional)
+  - 軍售
+  - 國防部
+  - 立法院
+  - 民進黨
+  - 國民黨
+  - AIT
+  - 美台
+  - 美方
+  - 反共
+
+low_value_patterns:
+  # Tabloid / accidents / crime without policy angle
+  - "\\b(?:car accident|traffic accident|car crash|killed in.*(?:crash|accident))\\b"
+  - "\\b(?:crash kills?|dead in|dies? in|death toll)\\b"
+  - "\\b(?:murder|stabbing|assault|robbery|theft|arson)\\b"
+  - "\\b(?:celebrity|gossip|dating|romance|wedding|divorce)\\b"
+  - "\\b(?:sports? (?:star|team)|athlete|tournament|championship|world cup)\\b"
+  # Pure science without policy implications
+  - "\\b(?:fossil|dinosaur|archaeological? find|excavation|paleontolog)\\b"
+  - "\\b(?:species discovered|new species|wildlife|biodiversity)\\b"
+  - "ecological resilience|marsh ecosystem|alpine ecosystem"
+  # Entertainment / lifestyle
+  - "\\b(?:movie|film release|box office|streaming|concert|music video)\\b"
+  - "\\b(?:fashion|beauty|makeup|cosmetic|skincare)\\b"
+  - "\\b(?:food|restaurant|recipe|cuisine|chef)\\b"
+  # Weather / natural disasters (unless policy-related)
+  - "\\b(?:earthquake|typhoon|flood|landslide)\\b(?!.*(?:policy|aid|relief|government))"
+
+high_value_keywords:
+  # Canada-China bilateral (English)
+  - canada-china
+  - canadian government
+  - ottawa
+  - trudeau
+  - carney
+  - global affairs canada
+  - parliament
+  - "bill c-"
+  # Major China policy (English)
+  - xi jinping
+  - state council
+  - politburo
+  - communist party
+  - foreign ministry
+  - mfa
+  - ministry of foreign affairs
+  # Geopolitical significance (English)
+  - sanctions
+  - tariff
+  - trade war
+  - export ban
+  - entity list
+  - five eyes
+  - aukus
+  - quad
+  - indo-pacific
+  - south china sea
+  # Tech/security (English)
+  - huawei
+  - tiktok
+  - semiconductor
+  - rare earth
+  - 5g
+  - cyber
+  - espionage
+  - interference
+  - national security
+  # Human rights / values (English)
+  - uyghur
+  - xinjiang
+  - hong kong
+  - tibet
+  - human rights
+  - censorship
+  - democracy
+  - crackdown
+  # Chinese keywords - Major policy
+  - 习近平
+  - 国务院
+  - 中央军委
+  - 政治局
+  - 中共中央
+  - 外交部
+  - 商务部
+  - 发改委
+  # Chinese keywords - Geopolitical
+  - 制裁
+  - 关税
+  - 贸易战
+  - 南海
+  - 台海
+  - 两岸
+  # Chinese keywords - Tech/security
+  - 华为
+  - 半导体
+  - 芯片
+  - 稀土
+  - 网络安全
+  # Chinese keywords - Canada
+  - 加拿大
+  - 渥太华
+  - 特鲁多
+  - 加中关系
+
+canada_keywords:
+  - canada
+  - canadian
+  - ottawa
+  - trudeau
+  - canola
+  - huawei
+  - meng wanzhou
+  - five eyes
+  - norad
+  - arctic
+  - bilateral
+  - canada-china
+
+china_keywords:
+  - china
+  - chinese
+  - beijing
+  - prc
+  - xi jinping
+  - hong kong
+  - taiwan
+  - xinjiang
+  - tibet
+  - cpc
+
+canadian_sources:
+  - globe and mail
+  - cbc
+  - cbc politics
+  - national post
+  - macdonald-laurier
+  - global affairs canada
+  - parliament of canada
+  - canadian press
+  - toronto star
+
+regulatory_keywords:
+  - regulation
+  - compliance
+  - antitrust
+  - samr
+  - cac
+  - crackdown
+  - enforcement
+  - fine
+  - penalty
+  - probe
+  - investigation
+  - license
+  - approval

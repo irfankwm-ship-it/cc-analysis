@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from analysis.translate import translate_to_chinese, translate_to_english
+from analysis.translate import (
+    _clean_partial_translation,
+    _contains_untranslated_english,
+    fix_gender_pronouns,
+    translate_to_chinese,
+    translate_to_english,
+)
 
 
 class TestTranslateToChinese:
@@ -70,3 +76,164 @@ class TestTranslateToEnglish:
         ):
             result = translate_to_english(["中文文本"])
         assert result == ["中文文本"]
+
+    def test_applies_pronoun_correction(self) -> None:
+        with patch(
+            "analysis.translate.llm_translate",
+            return_value="Pelosi said he will visit Taiwan",
+        ):
+            result = translate_to_english(["佩洛西说他将访问台湾"])
+        assert "she" in result[0].lower()
+
+
+class TestFixGenderPronouns:
+    """Tests for pronoun correction on known figures."""
+
+    def test_corrects_pelosi(self) -> None:
+        text = "Pelosi said he would visit Taiwan."
+        result = fix_gender_pronouns(text)
+        assert "she" in result.lower()
+        assert "he " not in result.lower().replace("she", "")
+
+    def test_corrects_his_to_her(self) -> None:
+        text = "Tsai Ing-wen announced his new policy."
+        result = fix_gender_pronouns(text)
+        assert "her" in result.lower()
+
+    def test_no_change_for_male_figures(self) -> None:
+        text = "Xi Jinping said he would increase tariffs."
+        result = fix_gender_pronouns(text)
+        assert result == text
+
+    def test_empty_text(self) -> None:
+        assert fix_gender_pronouns("") == ""
+
+    def test_no_known_figures(self) -> None:
+        text = "The minister said he would resign."
+        result = fix_gender_pronouns(text)
+        assert result == text
+
+    def test_preserves_surrounding_text(self) -> None:
+        text = "In Ottawa, Freeland presented his budget plan to parliament."
+        result = fix_gender_pronouns(text)
+        assert "her" in result.lower()
+        assert "Ottawa" in result
+        assert "parliament" in result
+
+
+class TestContainsUntranslatedEnglish:
+    """Tests for detecting untranslated English in Chinese text."""
+
+    def test_clean_chinese(self) -> None:
+        assert not _contains_untranslated_english("中国宣布新贸易政策")
+
+    def test_english_fragments(self) -> None:
+        assert _contains_untranslated_english(
+            "中国 announced new trade policy 关于贸易"
+        )
+
+    def test_empty_string(self) -> None:
+        assert not _contains_untranslated_english("")
+
+    def test_mostly_english(self) -> None:
+        assert _contains_untranslated_english("This is mostly English text 中文")
+
+    def test_custom_threshold(self) -> None:
+        # Low threshold should flag even small amounts of English
+        text = "中国贸易政策ABC的发展"
+        assert not _contains_untranslated_english(text, threshold=0.5)
+
+    def test_punctuation_only(self) -> None:
+        assert not _contains_untranslated_english("...!!!")
+
+
+class TestCleanPartialTranslation:
+    """Tests for cleaning up partially translated text."""
+
+    def test_removes_english_with_chinese_parens(self) -> None:
+        text = "capitulation（投降）已经开始"
+        result = _clean_partial_translation(text)
+        assert "capitulation" not in result
+        assert "投降" in result
+
+    def test_removes_english_abbreviations(self) -> None:
+        text = "电动汽车（EVs）行业"
+        result = _clean_partial_translation(text)
+        assert "EVs" not in result
+        assert "电动汽车" in result
+
+    def test_replaces_untranslated_words(self) -> None:
+        text = "这是一个unprecedented的举措"
+        result = _clean_partial_translation(text)
+        assert "unprecedented" not in result
+        assert "史无前例" in result
+
+    def test_empty_text(self) -> None:
+        assert _clean_partial_translation("") == ""
+
+    def test_pure_english_unchanged(self) -> None:
+        text = "This is pure English text with sanctions"
+        result = _clean_partial_translation(text)
+        # Should still replace known words even in English
+        assert "制裁" in result
+
+    def test_multiple_replacements(self) -> None:
+        text = "中国的sanctions和tariffs政策"
+        result = _clean_partial_translation(text)
+        assert "制裁" in result
+        assert "关税" in result
+
+
+class TestStrictRetryPath:
+    """Tests for the strict translation retry path."""
+
+    def test_strict_retry_on_english_fragments(self) -> None:
+        with (
+            patch(
+                "analysis.translate.llm_translate",
+                return_value="中国的escalation政策",
+            ),
+            patch(
+                "analysis.translate.llm_translate_strict",
+                return_value="中国的升级政策",
+            ),
+        ):
+            result = translate_to_chinese(["China's escalation policy"])
+        assert "升级" in result[0]
+
+    def test_mymemory_fallback_after_strict_fails(self) -> None:
+        with (
+            patch(
+                "analysis.translate.llm_translate",
+                return_value="中国的escalation政策",
+            ),
+            patch(
+                "analysis.translate.llm_translate_strict",
+                return_value="中国的still escalation",
+            ),
+            patch(
+                "analysis.translate._mymemory_translate_one",
+                return_value="中国的升级政策",
+            ),
+        ):
+            result = translate_to_chinese(["China's escalation policy"])
+        assert "升级" in result[0]
+
+    def test_cleanup_fallback_when_all_retries_fail(self) -> None:
+        with (
+            patch(
+                "analysis.translate.llm_translate",
+                return_value="中国的sanctions政策",
+            ),
+            patch(
+                "analysis.translate.llm_translate_strict",
+                return_value="中国的still sanctions here",
+            ),
+            patch(
+                "analysis.translate._mymemory_translate_one",
+                return_value="中国的more sanctions text",
+            ),
+        ):
+            result = translate_to_chinese(["China's sanctions policy"])
+        # Should clean up the original LLM result via _clean_partial_translation
+        assert "制裁" in result[0]

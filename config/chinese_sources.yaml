@@ -1,0 +1,123 @@
+# Chinese source detection data.
+# Used by source_detection module for language/origin detection.
+
+source_names:
+  # Mainland official
+  - xinhua
+  - 新华社
+  - 新华网
+  - "people's daily"
+  - 人民日报
+  - global times
+  - 环球时报
+  - cgtn
+  - china daily
+  - 中国日报
+  - mfa china
+  - mofcom
+  - state council
+  - 国务院
+  - 商务部
+  - 外交部
+  # Mainland business/tech
+  - caixin
+  - 财新
+  - 财新网
+  - the paper
+  - 澎湃
+  - 澎湃新闻
+  - jiemian
+  - 界面
+  - 界面新闻
+  - 36kr
+  - 36氪
+  - yibang
+  - 亿邦动力
+  # Hong Kong
+  - south china morning post
+  - scmp
+  - 南华早报
+  - scmp diplomacy
+  - scmp economy
+  - scmp politics
+  - scmp china
+  - rthk
+  - 香港電台
+  - hong kong free press
+  - hkfp
+  # Taiwan
+  - liberty times
+  - 自由時報
+  - cna
+  - 中央社
+  - focus taiwan
+  - taipei times
+  - taiwan news
+  - united daily news
+  - 聯合報
+  # Diaspora/critical
+  - china digital times
+  - 中国数字时代
+  # BBC Chinese
+  - bbc china
+  - bbc中文
+  - bbc chinese
+
+domains:
+  - xinhua
+  - news.cn
+  - people.com.cn
+  - globaltimes.cn
+  - chinadaily.com.cn
+  - cgtn.com
+  - scmp.com
+  - thepaper.cn
+  - caixin.com
+  - jiemian.com
+  - 36kr.com
+  - yibang.com
+  - cna.com.tw
+  - focustaiwan.tw
+  - taipeitimes.com
+  - rthk.hk
+  - hongkongfp.com
+  - bbc.com/zhongwen
+  - bbc.co.uk/zhongwen
+
+name_translations:
+  # Mainland official
+  人民日报: "People's Daily"
+  新华社: Xinhua
+  新华网: Xinhua
+  环球时报: Global Times
+  中国日报: China Daily
+  外交部: MFA China
+  商务部: MOFCOM
+  国务院: State Council
+  # Mainland business/tech
+  财新: Caixin
+  财新网: Caixin
+  澎湃: The Paper
+  澎湃新闻: The Paper
+  界面: Jiemian
+  界面新闻: Jiemian
+  36氪: 36Kr
+  亿邦动力: Yibang
+  # Hong Kong
+  南华早报: SCMP
+  香港電台: RTHK
+  香港电台: RTHK
+  # Taiwan
+  自由時報: Liberty Times
+  自由時報國際: Liberty Times
+  自由时报: Liberty Times
+  中央社: CNA Taiwan
+  聯合報: United Daily News
+  联合报: United Daily News
+  # Diaspora
+  中国数字时代: China Digital Times
+  # International Chinese media
+  BBC中文: BBC Chinese
+  BBC中文网: BBC Chinese
+  德国之声: DW Chinese
+  德國之聲: DW Chinese

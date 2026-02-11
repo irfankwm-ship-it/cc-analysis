@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from analysis.cli import _score_sentence, _summarize_body, main
+from analysis.cli import main
+from analysis.text_processing import score_sentence as _score_sentence
+from analysis.text_processing import summarize_body as _summarize_body
 
 
 @pytest.fixture

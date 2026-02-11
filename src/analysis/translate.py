@@ -4,19 +4,32 @@ Provides translation between English and Simplified Chinese.
 Uses local LLM (via ollama) as the primary translator, falling back
 to the free MyMemory API when LLM is unavailable.
 
+Supports concurrent translation via ThreadPoolExecutor. Control
+parallelism with the CC_TRANSLATE_WORKERS environment variable
+(default: 3). ``requests`` and ``logging`` are thread-safe; pure
+helper functions (_clean_partial_translation, _contains_untranslated_english)
+are stateless.
+
 MyMemory quota: ~5000 chars/day anonymous, higher with email/key.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Semaphore
 
 import requests
 
 from analysis.llm import llm_translate, llm_translate_strict
 
 logger = logging.getLogger(__name__)
+
+_MAX_WORKERS = int(os.environ.get("CC_TRANSLATE_WORKERS", "3"))
+_OLLAMA_SEMAPHORE = Semaphore(_MAX_WORKERS)
+_MYMEMORY_LOCK = Semaphore(1)  # serialize MyMemory (rate-limited)
 
 
 # Known figures with their correct gender for pronoun correction
@@ -306,16 +319,65 @@ def _mymemory_translate_one(text: str, langpair: str = "en|zh-CN") -> str | None
         return None
 
 
+def _translate_one(
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    mymemory_langpair: str,
+    check_english: bool,
+) -> tuple[str, str]:
+    """Translate a single text. Thread-safe.
+
+    Returns:
+        (translated_text, method) where method is one of
+        "llm", "llm_strict", "mymemory", "fallback".
+    """
+    # Try LLM first (guarded by semaphore)
+    with _OLLAMA_SEMAPHORE:
+        result = llm_translate(text, source_lang, target_lang)
+
+    if result:
+        if check_english and _contains_untranslated_english(result):
+            logger.debug(
+                "LLM has English fragments, retrying strict: %.50s",
+                result,
+            )
+            with _OLLAMA_SEMAPHORE:
+                strict = llm_translate_strict(
+                    text, source_lang, target_lang
+                )
+            if strict and not _contains_untranslated_english(strict):
+                return strict, "llm_strict"
+            # Try MyMemory as last resort
+            with _MYMEMORY_LOCK:
+                mm = _mymemory_translate_one(text, mymemory_langpair)
+                time.sleep(0.2)
+            if mm and not _contains_untranslated_english(mm):
+                return mm, "mymemory"
+            return _clean_partial_translation(result), "llm"
+        return result, "llm"
+
+    # Fall back to MyMemory (serialized — rate-limited)
+    with _MYMEMORY_LOCK:
+        result = _mymemory_translate_one(text, mymemory_langpair)
+        time.sleep(0.2)
+    if result:
+        return result, "mymemory"
+
+    return text, "fallback"
+
+
 def _translate_batch(
     texts: list[str],
     source_lang: str,
     target_lang: str,
     mymemory_langpair: str,
 ) -> list[str]:
-    """Translate a list of texts. LLM primary, MyMemory fallback.
+    """Translate a list of texts concurrently.
 
-    For English-to-Chinese translations, validates output for untranslated
-    English fragments and retries with stricter prompts if detected.
+    Uses ThreadPoolExecutor with CC_TRANSLATE_WORKERS threads (default 3).
+    LLM calls are guarded by _OLLAMA_SEMAPHORE; MyMemory calls are
+    serialized via _MYMEMORY_LOCK.
 
     Args:
         texts: Texts to translate.
@@ -331,49 +393,28 @@ def _translate_batch(
         return texts
 
     translated = list(texts)  # copy
-    llm_success = 0
-    llm_strict_success = 0
-    mm_success = 0
-    check_english = target_lang == "zh"  # Only check for EN->ZH translations
+    check_english = target_lang == "zh"
+    counts: dict[str, int] = {
+        "llm": 0, "llm_strict": 0, "mymemory": 0, "fallback": 0,
+    }
 
-    for idx, text in non_empty:
-        # Try LLM first
-        result = llm_translate(text, source_lang, target_lang)
-        if result:
-            # For Chinese output, check for untranslated English
-            if check_english and _contains_untranslated_english(result):
-                logger.debug(
-                    "LLM translation contains English fragments, retrying strict: %.50s",
-                    result,
-                )
-                # Try strict translation
-                strict_result = llm_translate_strict(text, source_lang, target_lang)
-                if strict_result and not _contains_untranslated_english(strict_result):
-                    translated[idx] = strict_result
-                    llm_strict_success += 1
-                    continue
-                # Try MyMemory as last resort
-                mm_result = _mymemory_translate_one(text, mymemory_langpair)
-                if mm_result and not _contains_untranslated_english(mm_result):
-                    translated[idx] = mm_result
-                    mm_success += 1
-                    continue
-                # Use original LLM result with cleanup if all else fails
-                translated[idx] = _clean_partial_translation(result)
-                llm_success += 1
-                continue
-            translated[idx] = result
-            llm_success += 1
-            continue
-
-        # Fall back to MyMemory
-        result = _mymemory_translate_one(text, mymemory_langpair)
-        if result:
-            translated[idx] = result
-            mm_success += 1
-
-        # Small delay between MyMemory requests
-        time.sleep(0.2)
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+        future_to_idx = {
+            pool.submit(
+                _translate_one,
+                text,
+                source_lang,
+                target_lang,
+                mymemory_langpair,
+                check_english,
+            ): idx
+            for idx, text in non_empty
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            result_text, method = future.result()
+            translated[idx] = result_text
+            counts[method] += 1
 
     # Final cleanup pass for all Chinese translations
     if check_english:
@@ -385,20 +426,24 @@ def _translate_batch(
                     translated[i] = cleaned
                     cleaned_count += 1
         if cleaned_count > 0:
-            logger.info("Post-processed %d translations to fix English fragments", cleaned_count)
+            logger.info(
+                "Post-processed %d translations to fix English fragments",
+                cleaned_count,
+            )
 
     total = len(non_empty)
     logger.info(
-        "Translation %s->%s: %d/%d LLM, %d/%d LLM-strict, %d/%d MyMemory, %d/%d fallback",
+        "Translation %s->%s: %d/%d LLM, %d/%d LLM-strict, "
+        "%d/%d MyMemory, %d/%d fallback",
         source_lang,
         target_lang,
-        llm_success,
+        counts["llm"],
         total,
-        llm_strict_success,
+        counts["llm_strict"],
         total,
-        mm_success,
+        counts["mymemory"],
         total,
-        total - llm_success - llm_strict_success - mm_success,
+        counts["fallback"],
         total,
     )
     return translated
