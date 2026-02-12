@@ -102,6 +102,18 @@ low_value_patterns:
   - "\\b(?:black hole|white dwarf|neutron star|supernova|pulsar|quasar)\\b"
   - "\\b(?:astronomy|astrophysics|cosmology|exoplanet|telescope|observatory)\\b"
   - "\\b(?:galaxy|galaxies|light-year|stellar|celestial)\\b"
+  # Chinese low-value patterns (CJK — no word boundaries)
+  - "(?:车祸|交通事故|撞车|坠机)"
+  - "(?:谋杀|刺伤|袭击|抢劫|盗窃|纵火)"
+  - "(?:明星|八卦|绯闻|网红|偶像|选秀)"
+  - "(?:体育|运动员|锦标赛|世界杯|联赛|奥运)"
+  - "(?:化石|恐龙|考古|古生物)"
+  - "(?:黑洞|白矮星|中子星|超新星|天文|望远镜)"
+  - "(?:电影|票房|上映|综艺|音乐会|演唱会)"
+  - "(?:美妆|化妆品|护肤|时尚|服饰)"
+  - "(?:美食|餐厅|食谱|烹饪|菜谱)"
+  - "(?:暴雨|降雨|天气预报|气象预警|雷暴)"
+  - "(?:楼市|房价|预售|楼盘|房地产(?!.*(?:政策|调控)))"
 
 high_value_keywords:
   # Canada-China bilateral (English)
@@ -192,6 +204,10 @@ canada_keywords:
   - arctic
   - bilateral
   - canada-china
+  # Chinese
+  - 加拿大
+  - 渥太华
+  - 特鲁多
 
 china_keywords:
   - china
@@ -204,6 +220,13 @@ china_keywords:
   - xinjiang
   - tibet
   - cpc
+  # Chinese
+  - 中国
+  - 中华
+  - 北京
+  - 习近平
+  - 台湾
+  - 香港
 
 canadian_sources:
   - globe and mail

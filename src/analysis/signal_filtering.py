@@ -58,6 +58,18 @@ _LOW_VALUE_PATTERNS = [
     r"\b(?:black hole|white dwarf|neutron star|supernova|pulsar|quasar)\b",
     r"\b(?:astronomy|astrophysics|cosmology|exoplanet|telescope|observatory)\b",
     r"\b(?:galaxy|galaxies|light-year|stellar|celestial)\b",
+    # Chinese low-value patterns (CJK — no word boundaries)
+    r"(?:车祸|交通事故|撞车|坠机)",
+    r"(?:谋杀|刺伤|袭击|抢劫|盗窃|纵火)",
+    r"(?:明星|八卦|绯闻|网红|偶像|选秀)",
+    r"(?:体育|运动员|锦标赛|世界杯|联赛|奥运)",
+    r"(?:化石|恐龙|考古|古生物)",
+    r"(?:黑洞|白矮星|中子星|超新星|天文|望远镜)",
+    r"(?:电影|票房|上映|综艺|音乐会|演唱会)",
+    r"(?:美妆|化妆品|护肤|时尚|服饰)",
+    r"(?:美食|餐厅|食谱|烹饪|菜谱)",
+    r"(?:暴雨|降雨|天气预报|气象预警|雷暴)",
+    r"(?:楼市|房价|预售|楼盘|房地产(?!.*(?:政策|调控)))",
 ]
 
 _HIGH_VALUE_KEYWORDS = [
@@ -83,12 +95,14 @@ _CANADA_KEYWORDS = [
     "canola", "huawei", "meng wanzhou",
     "five eyes", "norad", "arctic",
     "bilateral", "canada-china",
+    "加拿大", "渥太华", "特鲁多",
 ]
 
 _CHINA_KEYWORDS = [
     "china", "chinese", "beijing", "prc",
     "xi jinping", "hong kong", "taiwan",
     "xinjiang", "tibet", "cpc",
+    "中国", "中华", "北京", "习近平", "台湾", "香港",
 ]
 
 _CANADIAN_SOURCES: set[str] = {
@@ -164,19 +178,42 @@ def parse_signal_date(signal: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _extract_signal_text(signal: dict[str, Any]) -> tuple[str, str]:
+    """Extract combined text and title from a signal in all languages.
+
+    Returns:
+        Tuple of (full_text, title_text) — both lowercased.
+    """
+    title = signal.get("title", "")
+    body = signal.get("body_snippet", signal.get("body", ""))
+
+    parts_title: list[str] = []
+    parts_body: list[str] = []
+
+    if isinstance(title, dict):
+        parts_title.append(title.get("en", ""))
+        parts_title.append(title.get("zh", ""))
+    elif isinstance(title, str):
+        parts_title.append(title)
+
+    if isinstance(body, dict):
+        parts_body.append(body.get("en", ""))
+        parts_body.append(body.get("zh", ""))
+    elif isinstance(body, str):
+        parts_body.append(body)
+
+    title_text = " ".join(parts_title).lower()
+    full_text = f"{title_text} {' '.join(parts_body)}".lower()
+    return full_text, title_text
+
+
 def is_china_relevant(
     signal: dict[str, Any],
     relevance_keywords: list[str] | None = None,
 ) -> bool:
     """Check if a signal is relevant to China."""
     keywords = relevance_keywords if relevance_keywords is not None else _CHINA_RELEVANCE_KEYWORDS
-    title = signal.get("title", "")
-    body = signal.get("body_snippet", signal.get("body", ""))
-    if isinstance(title, dict):
-        title = title.get("en", "")
-    if isinstance(body, dict):
-        body = body.get("en", "")
-    text = f"{title} {body}".lower()
+    text, _ = _extract_signal_text(signal)
     return any(kw in text for kw in keywords)
 
 
@@ -191,15 +228,7 @@ def compute_signal_value(
     lv_patterns = low_value_patterns if low_value_patterns is not None else _LOW_VALUE_PATTERNS
     ca_sources = canadian_sources if canadian_sources is not None else _CANADIAN_SOURCES
 
-    title = signal.get("title", "")
-    body = signal.get("body_snippet", signal.get("body", ""))
-    if isinstance(title, dict):
-        title = title.get("en", "")
-    if isinstance(body, dict):
-        body = body.get("en", "")
-
-    text = f"{title} {body}".lower()
-    title_lower = title.lower()
+    text, title_lower = _extract_signal_text(signal)
     score = 0
     reasons = []
 
@@ -221,8 +250,8 @@ def compute_signal_value(
         score += 1
         reasons.append("high-value keyword")
 
-    if any(kw in title_lower for kw in ["canada", "canadian", "ottawa"]):
-        if any(kw in title_lower for kw in ["china", "chinese", "beijing"]):
+    if any(kw in title_lower for kw in ["canada", "canadian", "ottawa", "加拿大", "渥太华"]):
+        if any(kw in title_lower for kw in ["china", "chinese", "beijing", "中国", "北京"]):
             score += 3
             reasons.append("bilateral in title")
 
@@ -337,13 +366,7 @@ def is_bilateral(
     ca_kw = canada_keywords if canada_keywords is not None else _CANADA_KEYWORDS
     cn_kw = china_keywords if china_keywords is not None else _CHINA_KEYWORDS
 
-    title = signal.get("title", "")
-    body = signal.get("body_snippet", signal.get("body", ""))
-    if isinstance(title, dict):
-        title = title.get("en", "")
-    if isinstance(body, dict):
-        body = body.get("en", "")
-    text = f"{title} {body}".lower()
+    text, _ = _extract_signal_text(signal)
     has_canada = any(kw in text for kw in ca_kw)
     has_china = any(kw in text for kw in cn_kw)
     return has_canada and has_china

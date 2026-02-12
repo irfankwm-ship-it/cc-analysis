@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from analysis.signal_filtering import (
+    _extract_signal_text,
     compute_signal_value,
     filter_and_prioritize_signals,
     filter_low_value_signals,
@@ -148,6 +149,103 @@ class TestIsBilateral:
             canada_keywords=["ottawa"],
             china_keywords=["beijing"],
         )
+
+
+class TestExtractSignalText:
+    def test_string_fields(self) -> None:
+        signal = {"title": "Hello World", "body": "Some body text"}
+        full, title = _extract_signal_text(signal)
+        assert "hello world" in title
+        assert "some body text" in full
+
+    def test_bilingual_dict_fields(self) -> None:
+        signal = {
+            "title": {"en": "English title", "zh": "中文标题"},
+            "body": {"en": "English body", "zh": "中文正文"},
+        }
+        full, title = _extract_signal_text(signal)
+        assert "english title" in title
+        assert "中文标题" in title
+        assert "english body" in full
+        assert "中文正文" in full
+
+    def test_zh_only_string(self) -> None:
+        signal = {"title": "加拿大与中国签署贸易协议", "body": "正文内容"}
+        full, title = _extract_signal_text(signal)
+        assert "加拿大" in title
+        assert "正文内容" in full
+
+
+class TestChineseLowValuePatterns:
+    def test_weather_penalty(self) -> None:
+        signal = {"title": "北京天气预报：明日暴雨预警"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_entertainment_penalty(self) -> None:
+        signal = {"title": "中国电影票房创新高 综艺节目收视率上升"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_real_estate_penalty(self) -> None:
+        signal = {"title": "上海楼市房价持续下跌 新楼盘预售不佳"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_real_estate_policy_no_penalty(self) -> None:
+        """Real estate with policy angle should NOT get penalty."""
+        signal = {"title": "中国房地产政策调控新措施"}
+        score, reason = compute_signal_value(signal)
+        assert "low-value" not in reason
+
+    def test_celebrity_penalty(self) -> None:
+        signal = {"title": "中国明星八卦绯闻大爆料"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_sports_penalty(self) -> None:
+        signal = {"title": "中国运动员获得锦标赛冠军"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+
+class TestChineseBilateral:
+    def test_bilateral_chinese_text(self) -> None:
+        signal = {"title": "加拿大与中国签署新贸易协议"}
+        assert is_bilateral(signal)
+
+    def test_bilateral_chinese_body(self) -> None:
+        signal = {"title": "新协议", "body": "加拿大总理访问北京讨论中国贸易问题"}
+        assert is_bilateral(signal)
+
+    def test_not_bilateral_chinese(self) -> None:
+        signal = {"title": "中国发布新经济政策"}
+        assert not is_bilateral(signal)
+
+    def test_bilateral_bilingual_dict(self) -> None:
+        signal = {
+            "title": {"en": "Trade deal", "zh": "加拿大与中国贸易协议"},
+            "body": {"en": "Details", "zh": "详情"},
+        }
+        assert is_bilateral(signal)
+
+    def test_bilateral_title_boost_chinese(self) -> None:
+        signal = {"title": "加拿大与中国达成重要协议"}
+        score, reason = compute_signal_value(signal)
+        assert score >= 3
+        assert "bilateral in title" in reason
+
+    def test_relevance_bilingual_dict_zh(self) -> None:
+        """is_china_relevant checks ZH field of bilingual dicts."""
+        signal = {
+            "title": {"en": "Some unrelated title", "zh": "北京新政策"},
+        }
+        assert is_china_relevant(signal)
 
 
 class TestFilterAndPrioritize:
