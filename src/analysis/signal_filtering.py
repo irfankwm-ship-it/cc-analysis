@@ -58,6 +58,15 @@ _LOW_VALUE_PATTERNS = [
     r"\b(?:black hole|white dwarf|neutron star|supernova|pulsar|quasar)\b",
     r"\b(?:astronomy|astrophysics|cosmology|exoplanet|telescope|observatory)\b",
     r"\b(?:galaxy|galaxies|light-year|stellar|celestial)\b",
+    # Sports results / medals (individual sports not caught by existing pattern)
+    r"\b(?:skating|medal|luge|bobsled|ski jump|figure skat|speed skat|winter olymp)\b",
+    r"\b(?:horse rac|jockey|turf|derby|stakes race)\b",
+    # Human interest / viral stories
+    r"\b(?:viral|went viral|became famous|internet sensation)\b",
+    # Festival / lifestyle
+    r"\b(?:new year.{0,10}market|lunar new year.{0,10}fair|spring festival.{0,10}market)\b",
+    # Pop culture / fictional characters
+    r"\b(?:harry potter|hogwarts|draco malfoy|marvel|avengers|star wars|anime)\b",
     # Chinese low-value patterns (CJK — no word boundaries)
     r"(?:车祸|交通事故|撞车|坠机)",
     r"(?:谋杀|刺伤|袭击|抢劫|盗窃|纵火)",
@@ -70,6 +79,16 @@ _LOW_VALUE_PATTERNS = [
     r"(?:美食|餐厅|食谱|烹饪|菜谱)",
     r"(?:暴雨|降雨|天气预报|气象预警|雷暴)",
     r"(?:楼市|房价|预售|楼盘|房地产(?!.*(?:政策|调控)))",
+    # Sports results / medals (Chinese)
+    r"(?:滑冰|金牌|奖牌|冬奥|雪橇|短道速滑|花样滑冰)",
+    # Horse racing (Traditional + Simplified)
+    r"(?:赛马|賽馬|马会|馬會|赛狗)",
+    # Viral / trending (human interest)
+    r"(?:又火了|走红|爆红|刷屏)",
+    # Festival markets / lifestyle
+    r"(?:年宵市场|年货|花市|庙会|春节见闻|新春见闻)",
+    # Agricultural human interest
+    r"(?:菜农|蔬菜.*万斤|水果.*万斤)",
 ]
 
 _HIGH_VALUE_KEYWORDS = [

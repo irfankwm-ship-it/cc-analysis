@@ -214,6 +214,59 @@ class TestChineseLowValuePatterns:
         assert "low-value" in reason
 
 
+class TestBriefingNoiseLowValuePatterns:
+    """Patterns targeting actual noise from Feb 12 briefing."""
+
+    def test_skating_medal_penalty(self) -> None:
+        signal = {"title": "Chinese skating pair wins gold medal at World Championships"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_horse_racing_penalty(self) -> None:
+        signal = {"title": "Hong Kong horse racing season jockey club results"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_viral_human_interest_penalty(self) -> None:
+        signal = {"title": "Vegetable seller became famous overnight went viral online"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_festival_market_chinese_penalty(self) -> None:
+        signal = {"title": "记者新春见闻：走访各地年货市场"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_pop_culture_draco_malfoy_penalty(self) -> None:
+        signal = {"title": "Draco Malfoy becomes face of Chinese zodiac year meme"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_luge_penalty(self) -> None:
+        signal = {"title": "Chinese luge athlete achieves best ever result"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_winter_sports_chinese_penalty(self) -> None:
+        signal = {"title": "短道速滑选手获得金牌"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_korean_bbq_policy_not_caught(self) -> None:
+        """Signal with real policy angle (MAC response) should not be penalized."""
+        signal = {"title": "Korean BBQ chain bans Chinese customers, MAC responds"}
+        score, reason = compute_signal_value(signal)
+        # Should NOT get low-value penalty — has policy angle
+        assert "low-value" not in reason
+
+
 class TestChineseBilateral:
     def test_bilateral_chinese_text(self) -> None:
         signal = {"title": "加拿大与中国签署新贸易协议"}
