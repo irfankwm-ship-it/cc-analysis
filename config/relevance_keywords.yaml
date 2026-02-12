@@ -98,6 +98,10 @@ low_value_patterns:
   - "\\b(?:food|restaurant|recipe|cuisine|chef)\\b"
   # Weather / natural disasters (unless policy-related)
   - "\\b(?:earthquake|typhoon|flood|landslide)\\b(?!.*(?:policy|aid|relief|government))"
+  # Astronomy / astrophysics
+  - "\\b(?:black hole|white dwarf|neutron star|supernova|pulsar|quasar)\\b"
+  - "\\b(?:astronomy|astrophysics|cosmology|exoplanet|telescope|observatory)\\b"
+  - "\\b(?:galaxy|galaxies|light-year|stellar|celestial)\\b"
 
 high_value_keywords:
   # Canada-China bilateral (English)

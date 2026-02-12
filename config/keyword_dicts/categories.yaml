@@ -65,6 +65,22 @@ trade:
     - quota
     - trade war
     - trade agreement
+    # Automotive / EV
+    - automotive
+    - vehicle
+    - EV
+    - electric vehicle
+    - car maker
+    - automaker
+    - factory
+    - production
+    - BYD
+    - NIO
+    - CATL
+    - Geely
+    - SAIC
+    - Xpeng
+    - Li Auto
   zh:
     - "\u5173\u7A0E"
     - "\u8D38\u6613"
@@ -79,6 +95,19 @@ trade:
     - "\u5236\u88C1"
     - "\u7981\u8FD0"
     - "\u914D\u989D"
+    # Automotive / EV
+    - "电动汽车"
+    - "新能源汽车"
+    - "汽车"
+    - "车企"
+    - "工厂"
+    - "比亚迪"
+    - "蔚来"
+    - "宁德时代"
+    - "吉利"
+    - "上汽"
+    - "小鹏"
+    - "理想"
 
 military:
   en:
@@ -316,6 +345,22 @@ legal:
     - legal action
     - lawsuit
     - indictment
+    # Crime / enforcement
+    - smuggling
+    - fraud
+    - money laundering
+    - criminal
+    - crime
+    - sentenced
+    - conviction
+    - prison
+    - detained
+    - arrest
+    - trial
+    - verdict
+    - guilty
+    - trafficking
+    - mule
   zh:
     - "\u5F15\u6E21"
     - "\u6CD5\u9662"
@@ -329,3 +374,17 @@ legal:
     - "\u6267\u6CD5"
     - "\u6CD5\u6CBB"
     - "\u6CD5\u5F8B"
+    # Crime / enforcement
+    - "走私"
+    - "诈骗"
+    - "洗钱"
+    - "犯罪"
+    - "判刑"
+    - "定罪"
+    - "监狱"
+    - "拘留"
+    - "逮捕"
+    - "审判"
+    - "判决"
+    - "有罪"
+    - "贩运"

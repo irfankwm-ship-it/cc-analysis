@@ -104,6 +104,13 @@ def _fallback_category(text: str) -> str:
         'cyber', '5g', 'quantum', 'robot',
     )):
         return "technology"
+    # Crime / legal signals
+    if any(w in t for w in (
+        'arrest', 'arrested', 'sentenced', 'conviction',
+        'fraud', 'smuggling', 'money laundering', 'criminal',
+        'crime', 'prison', 'detained', 'trial', 'mule',
+    )):
+        return "legal"
     return "political"
 
 

@@ -165,12 +165,21 @@ def run(
 
     # Deduplicate
     logger.info("Deduplicating signals...")
+    dt = config.thresholds.dedup
     previous_signals = load_recent_signals(
         processed_dir=resolved_output,
         archive_dir=resolved_archive,
         current_date=target_date,
+        lookback_days=dt.lookback_days,
     )
-    raw_signals, dedup_stats = deduplicate_signals(raw_signals, previous_signals)
+    raw_signals, dedup_stats = deduplicate_signals(
+        raw_signals, previous_signals,
+        title_exact_en=dt.title_exact_en,
+        title_exact_zh=dt.title_exact_zh,
+        title_fuzzy_low=dt.title_fuzzy_low,
+        body_jaccard_threshold=dt.body_jaccard,
+        entity_body_jaccard_threshold=dt.entity_body_jaccard,
+    )
 
     # Load supplementary data
     supplementary = load_supplementary_data(resolved_raw)

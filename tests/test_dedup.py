@@ -546,6 +546,60 @@ class TestEntityDedup:
 
 # ── Lookback configuration ─────────────────────────────────────────────────
 
+class TestCustomThresholds:
+    """Test that custom thresholds are accepted and used."""
+
+    def test_strict_threshold_keeps_both(self):
+        """Raising title threshold should keep signals that would otherwise dedup."""
+        a = {"title": "China imposes tariffs on canola"}
+        b = {"title": "China imposes tariffs on canola imports"}
+        # With default threshold (0.85), these dedup
+        is_dup_default, _ = is_duplicate(a, b)
+        assert is_dup_default is True
+        # With very strict threshold (0.99), they should be kept as distinct
+        is_dup_strict, _ = is_duplicate(a, b, title_exact_en=0.99)
+        assert is_dup_strict is False
+
+    def test_loose_body_threshold(self):
+        """Lowering body Jaccard threshold catches more duplicates."""
+        a = {
+            "title": "China trade policy changes in Asia Pacific region",
+            "body_text": (
+                "China announced policy changes affecting trade with "
+                "multiple partners in the Asia Pacific region."
+            ),
+        }
+        b = {
+            "title": "China trade policy updated for regional partners",
+            "body": (
+                "China updated its trade policy for partners in the "
+                "Asia Pacific zone with new regulations."
+            ),
+        }
+        # With strict body threshold, these might be distinct
+        is_dup_strict, _ = is_duplicate(a, b, body_jaccard_threshold=0.90)
+        assert is_dup_strict is False
+        # With loose body threshold, they should dedup
+        is_dup_loose, _ = is_duplicate(a, b, body_jaccard_threshold=0.15)
+        assert is_dup_loose is True
+
+    def test_deduplicate_signals_accepts_thresholds(self):
+        """deduplicate_signals forwards thresholds to is_duplicate."""
+        signals = [
+            {"title": "China imposes tariffs on canola"},
+            {"title": "China imposes tariffs on canola imports"},
+        ]
+        # Default: dedup
+        result_default, stats_default = deduplicate_signals(signals)
+        assert len(result_default) == 1
+        # Very strict: keep both
+        result_strict, stats_strict = deduplicate_signals(
+            signals, title_exact_en=0.99,
+        )
+        assert len(result_strict) == 2
+        assert stats_strict.total_dropped == 0
+
+
 class TestLookbackConfig:
     def test_default_lookback_is_seven_days(self):
         """Default lookback extended to 7 days to prevent story repetition."""

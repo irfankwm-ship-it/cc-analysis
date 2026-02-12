@@ -97,18 +97,59 @@ class TestGeneratePerspectives:
         assert result["china"]["en"] == "China view"
 
     @patch("analysis.signal_normalization.llm_generate_perspectives")
-    def test_llm_generated(self, mock_llm: object) -> None:
+    def test_llm_generated_english(self, mock_llm: object) -> None:
+        """LLM returns English-only perspectives for English source."""
         mock_llm.return_value = {
-            "canada": {"en": "LLM Canada", "zh": "LLM加拿大"},
-            "china": {"en": "LLM China", "zh": "LLM中国"},
+            "canada": "Ottawa views this trade move with concern.",
+            "china": "Beijing frames this as a win-win outcome.",
+            "lang": "en",
         }
         result = generate_perspectives(
             category="trade",
             is_chinese=False,
             title="Trade news",
-            body_text="Long body text about trade",
+            body_text="Long body text about trade developments and policy",
+            lang="en",
         )
         assert result.get("llm_generated") is True
+        assert result["canada"]["en"] == "Ottawa views this trade move with concern."
+        assert result["canada"]["zh"] == ""  # empty — filled later by translation
+        assert result["china"]["en"] == "Beijing frames this as a win-win outcome."
+
+    @patch("analysis.signal_normalization.llm_generate_perspectives")
+    def test_llm_generated_chinese(self, mock_llm: object) -> None:
+        """LLM returns Chinese-only perspectives for Chinese source."""
+        mock_llm.return_value = {
+            "canada": "渥太华对此表示关切，认为涉及加拿大利益。",
+            "china": "北京方面将此定性为正常的主权行为。",
+            "lang": "zh",
+        }
+        result = generate_perspectives(
+            category="diplomatic",
+            is_chinese=True,
+            title="外交部发言人就加中关系问题答记者问",
+            body_text="外交部发言人表示，中方一贯主张通过对话协商解决分歧",
+            lang="zh",
+        )
+        assert result.get("llm_generated") is True
+        assert result["canada"]["zh"] == "渥太华对此表示关切，认为涉及加拿大利益。"
+        assert result["canada"]["en"] == ""  # empty — filled later by translation
+        assert result["china"]["zh"] == "北京方面将此定性为正常的主权行为。"
+
+    @patch("analysis.signal_normalization.llm_generate_perspectives", return_value=None)
+    def test_llm_failure_falls_back_to_template(self, mock_llm: object) -> None:
+        """When LLM returns None, perspectives fall back to category templates."""
+        result = generate_perspectives(
+            category="military",
+            is_chinese=False,
+            title="PLA exercise",
+            body_text="Military exercise in the region",
+            lang="en",
+            canada_perspective={"military": {"en": "Canada mil view", "zh": "加军事观点"}},
+            china_perspective={"military": {"en": "China mil view", "zh": "中军事观点"}},
+        )
+        assert result.get("llm_generated") is not True
+        assert result["canada"]["en"] == "Canada mil view"
 
 
 class TestHasEnglishFragments:
@@ -139,22 +180,94 @@ class TestTranslateSignalsBatch:
         mock_translate.return_value = ["中文标题", "中文内容"]
         signals = [
             {
-                "title": {"en": "English title", "zh": "English title"},
-                "body": {"en": "English body", "zh": "English body"},
+                "title": {"en": "English title", "zh": ""},
+                "body": {"en": "English body", "zh": ""},
+                "_source_lang": "en",
             }
         ]
         result = translate_signals_batch(signals)
         assert len(result) == 1
         mock_translate.assert_called_once()
+        assert result[0]["title"]["zh"] == "中文标题"
+        assert result[0]["body"]["zh"] == "中文内容"
 
-    def test_preserves_chinese_content(self) -> None:
+    @patch("analysis.signal_normalization.translate_to_english")
+    def test_translates_chinese_signals(self, mock_translate: object) -> None:
+        mock_translate.return_value = ["English title", "English body"]
         signals = [
             {
-                "title": {"en": "Translated title", "zh": ""},
-                "body": {"en": "Translated body", "zh": ""},
-                "_preserved_zh_title": "原始中文标题",
-                "_preserved_zh_body": "原始中文内容需要足够长才能通过摘要处理",
+                "title": {"en": "", "zh": "中文标题"},
+                "body": {"en": "", "zh": "中文内容"},
+                "_source_lang": "zh",
             }
         ]
         result = translate_signals_batch(signals)
-        assert result[0]["title"]["zh"] == "原始中文标题"
+        assert len(result) == 1
+        mock_translate.assert_called_once()
+        assert result[0]["title"]["en"] == "English title"
+        assert result[0]["body"]["en"] == "English body"
+
+    @patch("analysis.signal_normalization.translate_to_chinese")
+    def test_translates_perspectives(self, mock_translate: object) -> None:
+        """Perspectives generated in English get translated to Chinese."""
+        mock_translate.return_value = [
+            "中文标题", "中文内容",
+            "渥太华对此关切", "北京认为正当",
+        ]
+        signals = [
+            {
+                "title": {"en": "Trade news", "zh": ""},
+                "body": {"en": "Trade body", "zh": ""},
+                "perspectives": {
+                    "canada": {"en": "Ottawa concerned", "zh": ""},
+                    "china": {"en": "Beijing justified", "zh": ""},
+                    "llm_generated": True,
+                },
+                "_source_lang": "en",
+            }
+        ]
+        result = translate_signals_batch(signals)
+        assert len(result) == 1
+        assert result[0]["perspectives"]["canada"]["zh"] == "渥太华对此关切"
+        assert result[0]["perspectives"]["china"]["zh"] == "北京认为正当"
+
+    @patch("analysis.signal_normalization.translate_to_english")
+    def test_translates_chinese_perspectives(self, mock_translate: object) -> None:
+        """Perspectives generated in Chinese get translated to English."""
+        mock_translate.return_value = [
+            "English title", "English body",
+            "Ottawa is concerned", "Beijing sees this as justified",
+        ]
+        signals = [
+            {
+                "title": {"en": "", "zh": "贸易新闻"},
+                "body": {"en": "", "zh": "贸易内容"},
+                "perspectives": {
+                    "canada": {"en": "", "zh": "渥太华对此关切"},
+                    "china": {"en": "", "zh": "北京认为此举正当"},
+                    "llm_generated": True,
+                },
+                "_source_lang": "zh",
+            }
+        ]
+        result = translate_signals_batch(signals)
+        assert len(result) == 1
+        assert result[0]["perspectives"]["canada"]["en"] == "Ottawa is concerned"
+        assert result[0]["perspectives"]["china"]["en"] == "Beijing sees this as justified"
+
+    def test_skips_already_bilingual(self) -> None:
+        """Signals with both languages filled are left alone."""
+        signals = [
+            {
+                "title": {"en": "Title", "zh": "标题"},
+                "body": {"en": "Body", "zh": "内容"},
+                "perspectives": {
+                    "canada": {"en": "Canada", "zh": "加拿大"},
+                    "china": {"en": "China", "zh": "中国"},
+                },
+                "_source_lang": "en",
+            }
+        ]
+        result = translate_signals_batch(signals)
+        assert result[0]["title"]["en"] == "Title"
+        assert result[0]["title"]["zh"] == "标题"

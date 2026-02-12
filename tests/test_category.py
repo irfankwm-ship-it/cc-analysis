@@ -134,3 +134,56 @@ class TestClassifySignal:
     def test_empty_signal(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
         result = classify_signal({}, categories_dict)
         assert result == "political"
+
+
+class TestTradeKeywords:
+    """Test automotive/EV keywords classify as trade."""
+
+    def test_byd_auto(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "BYD expands electric vehicle factory production in Southeast Asia"
+        assert classify_category(text, categories_dict) == "trade"
+
+    def test_ev_exports(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "China EV automaker NIO announces new vehicle exports to Canada"
+        assert classify_category(text, categories_dict) == "trade"
+
+    def test_catl_battery(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "CATL automotive battery production ramps up for Geely"
+        assert classify_category(text, categories_dict) == "trade"
+
+    def test_chinese_ev_keywords(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "比亚迪新能源汽车出口大幅增长，宁德时代电池产能扩张"
+        assert classify_category(text, categories_dict) == "trade"
+
+
+class TestLegalKeywords:
+    """Test crime/enforcement keywords classify as legal."""
+
+    def test_money_mule(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "Chinese national arrested as money mule in fraud laundering scheme"
+        assert classify_category(text, categories_dict) == "legal"
+
+    def test_smuggling(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "Court sentences smuggling ring trafficking goods from China"
+        assert classify_category(text, categories_dict) == "legal"
+
+    def test_money_laundering(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "China money laundering criminal convicted prison sentence verdict"
+        assert classify_category(text, categories_dict) == "legal"
+
+    def test_chinese_legal_keywords(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "走私集团被逮捕，洗钱犯罪嫌疑人在审判中被判有罪"
+        assert classify_category(text, categories_dict) == "legal"
+
+
+class TestFallbackCategory:
+    """Test _fallback_category for crime keywords."""
+
+    def test_crime_fallback(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        """Crime text without keyword dict matches should fall back to legal."""
+        from analysis.classifiers.category import _fallback_category
+        assert _fallback_category("Man arrested for fraud in money laundering scheme") == "legal"
+
+    def test_mule_fallback(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        from analysis.classifiers.category import _fallback_category
+        assert _fallback_category("Suspect convicted as mule in criminal trial") == "legal"

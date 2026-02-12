@@ -102,6 +102,29 @@ class TestComputeSignalValue:
         assert "Canadian source" in reason
 
 
+class TestLowValuePatterns:
+    def test_astronomy_negative_score(self) -> None:
+        """Astronomy signals should get a low-value penalty."""
+        signal = {
+            "title": "Chinese scientists discover black hole devouring white dwarf star"
+        }
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_telescope_negative_score(self) -> None:
+        signal = {"title": "New telescope at Beijing observatory spots galaxy cluster"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_astrophysics_negative_score(self) -> None:
+        signal = {"title": "Chinese astrophysics team discovers neutron star merger"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+
 class TestFilterLowValueSignals:
     def test_filters_low_value(self) -> None:
         signals = [

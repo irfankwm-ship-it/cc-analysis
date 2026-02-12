@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from analysis.llm import _call_ollama, llm_summarize, llm_translate
+from analysis.llm import _call_ollama, _parse_perspectives, llm_summarize, llm_translate
 
 
 class TestCallOllama:
@@ -89,3 +89,79 @@ class TestLlmSummarize:
     def test_summarize_empty_text(self) -> None:
         result = llm_summarize("", "headline")
         assert result is None
+
+    def test_summarize_chinese_prompt(self) -> None:
+        long_text = "中" * 500
+        summary = "这是中文摘要。"
+        with patch("analysis.llm._call_ollama", return_value=summary) as mock:
+            result = llm_summarize(long_text, "中文标题", lang="zh")
+        assert result == summary
+        # Verify Chinese prompt was used
+        prompt_text = mock.call_args[0][0]
+        assert "请将以下文章总结" in prompt_text
+
+
+class TestParsePerspectives:
+    """Tests for plain-text perspective parsing."""
+
+    def test_english_markers(self) -> None:
+        text = (
+            "Canadian perspective: Ottawa views this trade deal with concern, "
+            "noting potential impacts on agricultural exports. The government "
+            "is expected to seek bilateral consultations.\n\n"
+            "Beijing perspective: China frames the agreement as mutually "
+            "beneficial and consistent with WTO principles. State media "
+            "emphasizes open market commitments."
+        )
+        result = _parse_perspectives(text, "canadian perspective", "beijing perspective", "en")
+        assert result is not None
+        assert "Ottawa" in result["canada"]
+        assert "China" in result["china"]
+        assert result["lang"] == "en"
+
+    def test_chinese_markers(self) -> None:
+        text = (
+            "加拿大视角：渥太华方面对此事高度关注，认为涉及加拿大核心贸易利益。"
+            "预计加方将通过外交渠道提出关切。\n\n"
+            "北京视角：中方将此定性为正当的经济措施，符合国际贸易规则。"
+            "官方媒体强调中国始终坚持互利共赢的合作理念。"
+        )
+        result = _parse_perspectives(text, "加拿大视角", "北京视角", "zh")
+        assert result is not None
+        assert "渥太华" in result["canada"]
+        assert "中方" in result["china"]
+        assert result["lang"] == "zh"
+
+    def test_markers_with_fullwidth_colon(self) -> None:
+        text = (
+            "Canadian perspective：Ottawa is monitoring the situation closely "
+            "and considering diplomatic options for engagement.\n\n"
+            "Beijing perspective：Beijing considers this an internal matter "
+            "and urges respect for sovereignty."
+        )
+        result = _parse_perspectives(text, "canadian perspective", "beijing perspective", "en")
+        assert result is not None
+        assert "Ottawa" in result["canada"]
+
+    def test_missing_marker_returns_none(self) -> None:
+        text = "Some text without any perspective markers at all."
+        result = _parse_perspectives(text, "canadian perspective", "beijing perspective", "en")
+        assert result is None
+
+    def test_too_short_returns_none(self) -> None:
+        text = "Canadian perspective: Short.\n\nBeijing perspective: Brief."
+        result = _parse_perspectives(text, "canadian perspective", "beijing perspective", "en")
+        assert result is None
+
+    def test_reversed_order(self) -> None:
+        """Beijing marker appears before Canadian marker."""
+        text = (
+            "Beijing perspective: China sees this as a routine exercise "
+            "of sovereign rights in its territorial waters.\n\n"
+            "Canadian perspective: Canada expresses deep concern over "
+            "the military activity and its implications for regional stability."
+        )
+        result = _parse_perspectives(text, "canadian perspective", "beijing perspective", "en")
+        assert result is not None
+        assert "sovereign" in result["china"]
+        assert "concern" in result["canada"]

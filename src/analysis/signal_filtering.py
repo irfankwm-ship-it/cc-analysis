@@ -54,6 +54,10 @@ _LOW_VALUE_PATTERNS = [
     r"\b(?:fashion|beauty|makeup|cosmetic|skincare)\b",
     r"\b(?:food|restaurant|recipe|cuisine|chef)\b",
     r"\b(?:earthquake|typhoon|flood|landslide)\b(?!.*(?:policy|aid|relief|government))",
+    # Astronomy / astrophysics
+    r"\b(?:black hole|white dwarf|neutron star|supernova|pulsar|quasar)\b",
+    r"\b(?:astronomy|astrophysics|cosmology|exoplanet|telescope|observatory)\b",
+    r"\b(?:galaxy|galaxies|light-year|stellar|celestial)\b",
 ]
 
 _HIGH_VALUE_KEYWORDS = [

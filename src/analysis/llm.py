@@ -142,91 +142,143 @@ def llm_generate_perspectives(
     body: str,
     category: str,
     is_chinese_source: bool,
+    lang: str = "en",
 ) -> dict[str, Any] | None:
-    """Generate signal-specific dual perspectives via LLM.
+    """Generate signal-specific dual perspectives via LLM in a single language.
 
-    Creates Canadian and Beijing viewpoints tailored to the specific signal,
-    rather than using generic category-based templates.
+    Generates Canadian and Beijing viewpoints in the source language using
+    plain-text output (no JSON).  The caller is responsible for translating
+    to the other language afterwards.
 
     Args:
         title: Signal headline.
         body: Signal body text (first 1000 chars used).
         category: Signal category (diplomatic, trade, etc.).
         is_chinese_source: Whether the signal originated from a Chinese source.
+        lang: Output language — ``"en"`` or ``"zh"``.
 
     Returns:
-        Dict with canada_en, canada_zh, china_en, china_zh keys, or None on failure.
+        Dict with ``canada`` and ``china`` keys (plain strings in *lang*),
+        or None on failure.
     """
     if not title or not body:
         return None
 
-    # Truncate body for prompt efficiency
     body_truncated = body[:1000] if len(body) > 1000 else body
-    source_context = "Chinese media" if is_chinese_source else "Western media"
 
-    prompt = f"""Analyze this Canada-China news and generate dual perspectives.
-
-Category: {category}
-Source: {source_context}
-Headline: {title}
-Summary: {body_truncated}
-
-Generate balanced perspectives from both sides. Each perspective should be 2-3 sentences,
-focusing on how each side would view this development and what it means for their interests.
-
-CRITICAL: Respond with ONLY a valid JSON object, no other text:
-{{
-  "canada_en": "Canadian perspective in English (2-3 sentences)",
-  "canada_zh": "加方视角的中文翻译",
-  "china_en": "Beijing perspective in English (2-3 sentences)",
-  "china_zh": "北京视角的中文翻译"
-}}
-
-Canadian perspective: policy implications, stakeholder impacts, values-based concerns.
-Beijing perspective: official framing, sovereignty concerns, state media narratives."""
+    if lang == "zh":
+        source_context = "中方媒体" if is_chinese_source else "西方媒体"
+        prompt = (
+            f"分析以下中加关系新闻，生成两个不同视角的简要评论。\n\n"
+            f"类别：{category}\n"
+            f"来源：{source_context}\n"
+            f"标题：{title}\n"
+            f"摘要：{body_truncated}\n\n"
+            f"请分别从两个视角各写2-3句话：\n\n"
+            f"加拿大视角：[政策影响、利益相关方关切、价值观框架]\n\n"
+            f"北京视角：[官方立场、主权关切、官媒叙事]\n\n"
+            f"仅输出两个视角内容，不要添加其他文字。"
+        )
+        marker_canada = "加拿大视角"
+        marker_china = "北京视角"
+    else:
+        source_context = "Chinese media" if is_chinese_source else "Western media"
+        prompt = (
+            f"Analyze this Canada-China news and generate two perspectives.\n\n"
+            f"Category: {category}\n"
+            f"Source: {source_context}\n"
+            f"Headline: {title}\n"
+            f"Summary: {body_truncated}\n\n"
+            f"Write exactly two brief perspectives (2-3 sentences each):\n\n"
+            f"Canadian perspective: [policy implications, stakeholder concerns, "
+            f"values-based framing]\n\n"
+            f"Beijing perspective: [official framing, sovereignty concerns, "
+            f"state media narrative]\n\n"
+            f"Write ONLY the two perspectives, nothing else."
+        )
+        marker_canada = "canadian perspective"
+        marker_china = "beijing perspective"
 
     result = _call_ollama(prompt)
     if not result:
         return None
 
-    # Try to parse JSON from response
-    import json
-
-    try:
-        # Handle potential markdown code fences
-        clean_result = result.strip()
-        if clean_result.startswith("```"):
-            lines = clean_result.split("\n")
-            lines = [ln for ln in lines if not ln.strip().startswith("```")]
-            clean_result = "\n".join(lines)
-
-        # Find JSON boundaries
-        start = clean_result.find("{")
-        end = clean_result.rfind("}") + 1
-        if start >= 0 and end > start:
-            json_str = clean_result[start:end]
-            data = json.loads(json_str)
-
-            # Validate required keys
-            required = ("canada_en", "canada_zh", "china_en", "china_zh")
-            if all(k in data and data[k] for k in required):
-                return {
-                    "canada": {"en": data["canada_en"], "zh": data["canada_zh"]},
-                    "china": {"en": data["china_en"], "zh": data["china_zh"]},
-                }
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        logger.debug("Failed to parse LLM perspectives response: %s", exc)
-
-    return None
+    return _parse_perspectives(result, marker_canada, marker_china, lang)
 
 
-def llm_summarize(text: str, title: str, max_words: int = 100) -> str | None:
-    """Summarize article text via local LLM.
+def _parse_perspectives(
+    text: str,
+    marker_canada: str,
+    marker_china: str,
+    lang: str,
+) -> dict[str, Any] | None:
+    """Parse plain-text LLM output into canada/china perspective strings.
+
+    Looks for text markers (case-insensitive) and extracts the text between
+    them.  Returns None if either perspective is missing or too short.
+    """
+    text_lower = text.lower()
+    # Also handle variants with colon/fullwidth colon
+    ca_idx = -1
+    cn_idx = -1
+    for variant in (marker_canada, marker_canada + ":", marker_canada + "："):
+        pos = text_lower.find(variant.lower())
+        if pos >= 0:
+            ca_idx = pos + len(variant)
+            # Skip colon/space after marker
+            while ca_idx < len(text) and text[ca_idx] in ":： \n":
+                ca_idx += 1
+            break
+
+    for variant in (marker_china, marker_china + ":", marker_china + "："):
+        pos = text_lower.find(variant.lower())
+        if pos >= 0:
+            cn_idx = pos + len(variant)
+            while cn_idx < len(text) and text[cn_idx] in ":： \n":
+                cn_idx += 1
+            break
+
+    if ca_idx < 0 or cn_idx < 0:
+        logger.debug("Perspectives markers not found in LLM output")
+        return None
+
+    # Extract text between markers
+    if ca_idx < cn_idx:
+        # Canada comes first — find where China marker label starts
+        cn_label_pos = text_lower.find(marker_china.lower())
+        canada_text = text[ca_idx:cn_label_pos].strip()
+        china_text = text[cn_idx:].strip()
+    else:
+        # China comes first
+        ca_label_pos = text_lower.find(marker_canada.lower())
+        china_text = text[cn_idx:ca_label_pos].strip()
+        canada_text = text[ca_idx:].strip()
+
+    # Validate minimum length
+    min_len = 10 if lang == "zh" else 20
+    if len(canada_text) < min_len or len(china_text) < min_len:
+        logger.debug(
+            "Perspectives too short: canada=%d, china=%d",
+            len(canada_text), len(china_text),
+        )
+        return None
+
+    return {"canada": canada_text, "china": china_text, "lang": lang}
+
+
+def llm_summarize(
+    text: str,
+    title: str,
+    max_words: int = 100,
+    lang: str = "en",
+) -> str | None:
+    """Summarize article text via local LLM in the specified language.
 
     Args:
         text: Full article body text.
         title: Article headline for context.
-        max_words: Maximum word count for summary.
+        max_words: Maximum word count (or character count for Chinese).
+        lang: Output language — ``"en"`` or ``"zh"``.
 
     Returns:
         Summary text, or None on failure.
@@ -237,13 +289,23 @@ def llm_summarize(text: str, title: str, max_words: int = 100) -> str | None:
     # Truncate input to keep prompt reasonable for small model
     truncated = text[:2000]
 
-    prompt = (
-        f"Summarize the following article in {max_words} words or fewer. "
-        f"Focus on facts directly related to the headline. "
-        f"Return ONLY the summary, nothing else.\n\n"
-        f"Headline: {title}\n\n"
-        f"Article: {truncated}"
-    )
+    if lang == "zh":
+        max_chars = max_words * 2  # rough word-to-char ratio
+        prompt = (
+            f"请将以下文章总结为不超过{max_chars}字。"
+            f"聚焦与标题直接相关的事实。"
+            f"仅返回摘要内容，不要添加其他文字。\n\n"
+            f"标题：{title}\n\n"
+            f"文章：{truncated}"
+        )
+    else:
+        prompt = (
+            f"Summarize the following article in {max_words} words or fewer. "
+            f"Focus on facts directly related to the headline. "
+            f"Return ONLY the summary, nothing else.\n\n"
+            f"Headline: {title}\n\n"
+            f"Article: {truncated}"
+        )
 
     result = _call_ollama(prompt)
     if result:

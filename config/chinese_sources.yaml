@@ -19,6 +19,10 @@ source_names:
   - 国务院
   - 商务部
   - 外交部
+  # Mainland news agencies
+  - 中新网
+  - 中新网财经
+  - china news service
   # Mainland business/tech
   - caixin
   - 财新
@@ -33,6 +37,10 @@ source_names:
   - 36氪
   - yibang
   - 亿邦动力
+  - 虎嗅
+  - huxiu
+  - 钛媒体
+  - tmtpost
   # Hong Kong
   - south china morning post
   - scmp
@@ -45,6 +53,9 @@ source_names:
   - 香港電台
   - hong kong free press
   - hkfp
+  - 明报
+  - ming pao
+  - 南华早报中文
   # Taiwan
   - liberty times
   - 自由時報
@@ -55,6 +66,10 @@ source_names:
   - taiwan news
   - united daily news
   - 聯合報
+  - 联合报國際
+  - 自由時報財經
+  - 中央社兩岸
+  - 中央社財經
   # Diaspora/critical
   - china digital times
   - 中国数字时代
@@ -62,6 +77,11 @@ source_names:
   - bbc china
   - bbc中文
   - bbc chinese
+  # International Chinese media
+  - 法广中文
+  - rfi chinese
+  - 香港電台國際
+  - 香港電台財經
 
 domains:
   - xinhua
@@ -83,6 +103,15 @@ domains:
   - hongkongfp.com
   - bbc.com/zhongwen
   - bbc.co.uk/zhongwen
+  - chinanews.com.cn
+  - chinanews.com
+  - huxiu.com
+  - tmtpost.com
+  - mingpao.com
+  - udn.com
+  - ltn.com.tw
+  - rfi.fr/cn
+  - dw.com
 
 name_translations:
   # Mainland official
@@ -116,8 +145,31 @@ name_translations:
   联合报: United Daily News
   # Diaspora
   中国数字时代: China Digital Times
+  # Mainland news agencies
+  中新网: China News Service
+  中新网财经: China News Service
+  # Business/tech
+  虎嗅: Huxiu
+  钛媒体: TMTPost
+  # People's Daily sections
+  人民日报国际: "People's Daily"
+  人民日报财经: "People's Daily"
+  人民日报军事: "People's Daily"
+  人民日报台港澳: "People's Daily"
+  # Hong Kong
+  明报: Ming Pao
+  明报兩岸: Ming Pao
+  南华早报中文: SCMP
+  香港電台國際: RTHK
+  香港電台財經: RTHK
+  # Taiwan
+  自由時報財經: Liberty Times
+  中央社兩岸: CNA Taiwan
+  中央社財經: CNA Taiwan
+  联合报國際: United Daily News
   # International Chinese media
   BBC中文: BBC Chinese
   BBC中文网: BBC Chinese
   德国之声: DW Chinese
   德國之聲: DW Chinese
+  法广中文: RFI Chinese

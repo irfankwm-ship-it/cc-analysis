@@ -106,33 +106,51 @@ def generate_perspectives(
     body_text: str = "",
     source_name: str = "",
     title: str = "",
+    lang: str = "en",
     canada_perspective: dict[str, dict[str, str]] | None = None,
     china_perspective: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Generate dual-perspective content for a signal."""
+    """Generate dual-perspective content for a signal in the source language.
+
+    Tries LLM first (single-language plain text), then quote extraction,
+    then category templates as fallback.  Only populates the *lang* side;
+    the other language is filled later by ``translate_signals_batch``.
+    """
     _load_default_templates()
     ca_persp = canada_perspective if canada_perspective is not None else _CANADA_PERSPECTIVE
     cn_persp = china_perspective if china_perspective is not None else _CHINA_PERSPECTIVE
 
-    # Try LLM-powered perspectives first
+    primary = (
+        {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
+        else {"en": "Western media", "zh": "西方媒体"}
+    )
+
+    # Try LLM-powered perspectives first (single-language output)
     if title and body_text:
-        llm_perspectives = llm_generate_perspectives(
+        llm_result = llm_generate_perspectives(
             title=title,
             body=body_text,
             category=category,
             is_chinese_source=is_chinese,
+            lang=lang,
         )
-        if llm_perspectives:
-            primary = (
-                {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
-                else {"en": "Western media", "zh": "西方媒体"}
-            )
-            return {
-                "primary_source": primary,
-                "canada": llm_perspectives["canada"],
-                "china": llm_perspectives["china"],
-                "llm_generated": True,
-            }
+        if llm_result:
+            canada_text = llm_result["canada"]
+            china_text = llm_result["china"]
+            if lang == "zh":
+                return {
+                    "primary_source": primary,
+                    "canada": {"en": "", "zh": canada_text},
+                    "china": {"en": "", "zh": china_text},
+                    "llm_generated": True,
+                }
+            else:
+                return {
+                    "primary_source": primary,
+                    "canada": {"en": canada_text, "zh": ""},
+                    "china": {"en": china_text, "zh": ""},
+                    "llm_generated": True,
+                }
 
     # Quote indicators
     en_quote_indicators = [
@@ -154,18 +172,14 @@ def generate_perspectives(
     canada_template = ca_persp.get(category, ca_persp.get("diplomatic", {"en": "", "zh": ""}))
     china_template = cn_persp.get(category, cn_persp.get("diplomatic", {"en": "", "zh": ""}))
 
-    primary = (
-        {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
-        else {"en": "Western media", "zh": "西方媒体"}
-    )
     result: dict[str, Any] = {"primary_source": primary}
 
     if extracted_quote and is_chinese:
-        result["china"] = {"en": extracted_quote, "zh": extracted_quote}
+        result["china"] = {"en": "", "zh": extracted_quote}
         result["china_source"] = {"en": source_name, "zh": source_name}
         result["canada"] = canada_template
     elif extracted_quote and not is_chinese:
-        result["canada"] = {"en": extracted_quote, "zh": extracted_quote}
+        result["canada"] = {"en": extracted_quote, "zh": ""}
         result["canada_source"] = {"en": source_name, "zh": source_name}
         result["china"] = china_template
     else:
@@ -207,41 +221,27 @@ def normalize_signal(
     domains: set[str] | frozenset[str] | None = None,
     name_translations: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Normalize a classified signal to conform to the processed schema."""
+    """Normalize a classified signal to conform to the processed schema.
+
+    Generates summaries and perspectives in the **source language** first.
+    The other language is left empty and filled later by
+    ``translate_signals_batch``.
+    """
     from analysis.signal_filtering import parse_signal_date
 
     s = dict(signal)
 
     source_lang = s.get("language", "en")
+    is_chinese = is_chinese_source(signal, source_names, domains)
+    # Determine effective generation language
+    gen_lang = "zh" if (source_lang == "zh" or is_chinese) else "en"
 
     title_str = s.get("title", "")
     if isinstance(title_str, dict):
-        title_str = title_str.get("en", "")
+        title_str = title_str.get("en", "") or title_str.get("zh", "")
     raw_body = s.pop("body_text", "") or s.pop("body_snippet", "") or s.get("body", "")
 
-    preserved_zh_title = None
-    preserved_zh_body = None
-
-    if source_lang == "zh" and raw_body and not isinstance(raw_body, dict):
-        preserved_zh_title = title_str
-        preserved_zh_body = raw_body[:2000]
-        raw_body = translate_to_english([raw_body])[0]
-        if title_str:
-            translated_title = translate_to_english([title_str])[0]
-            if is_primarily_chinese(translated_title):
-                logger.warning("Title translation failed, retrying: %.50s", title_str)
-                translated_title = translate_to_english([title_str])[0]
-            if not is_primarily_chinese(translated_title):
-                title_str = translated_title
-            else:
-                logger.warning("Title translation retry failed: %.50s", title_str)
-                s["_translation_failed"] = True
-
-    if preserved_zh_title:
-        s["_preserved_zh_title"] = preserved_zh_title
-    if preserved_zh_body:
-        s["_preserved_zh_body"] = preserved_zh_body
-
+    # --- Summarize in source language ---
     if raw_body and not isinstance(raw_body, dict):
         s["body"] = summarize_body(raw_body, title_str)
 
@@ -250,22 +250,29 @@ def normalize_signal(
             or len(raw_body) > 1500
         )
         if use_llm:
-            llm_result = llm_summarize(raw_body, title_str)
+            llm_result = llm_summarize(raw_body, title_str, lang=gen_lang)
             if llm_result:
                 s["body"] = llm_result
 
+    # --- Build bilingual shells (populate source-language side only) ---
     for key in ("title", "body"):
-        if key in s:
-            s[key] = to_bilingual(s[key])
+        val = s.get(key, "")
+        if isinstance(val, dict) and "en" in val:
+            continue  # already bilingual
+        text = str(val) if val else ""
+        if gen_lang == "zh":
+            s[key] = {"en": "", "zh": text}
         else:
-            s[key] = {"en": "", "zh": ""}
+            s[key] = {"en": text, "zh": ""}
 
+    # --- Source name ---
     source_val = s.get("source", "")
     if isinstance(source_val, dict):
         s["source"] = source_val
     else:
         s["source"] = translate_source_name(str(source_val), name_translations)
 
+    # --- Date ---
     raw_date = s.get("date", "")
     if raw_date:
         parsed = parse_signal_date(s)
@@ -274,6 +281,7 @@ def normalize_signal(
     else:
         s["date"] = ""
 
+    # --- Implications (bilingual templates — no change) ---
     if "implications" not in s or not isinstance(s["implications"], dict):
         s["implications"] = generate_implications(
             s.get("category", "diplomatic"),
@@ -303,24 +311,26 @@ def normalize_signal(
         else:
             imp["what_to_watch"] = to_bilingual(imp["what_to_watch"])
 
-    is_chinese = is_chinese_source(signal, source_names, domains)
-    body_for_quotes = signal.get("body_text", "") or signal.get("body_snippet", "")
+    # --- Perspectives (generated in source language) ---
+    body_for_perspectives = raw_body if raw_body and not isinstance(raw_body, dict) else ""
     source_name_str = signal.get("source", "")
     if isinstance(source_name_str, dict):
         source_name_str = source_name_str.get("en", "") or source_name_str.get("zh", "")
 
-    title_for_perspectives = s.get("title", {}).get("en", "") or title_str
+    title_for_perspectives = title_str or s.get("title", {}).get(gen_lang, "")
 
     s["perspectives"] = generate_perspectives(
         category=s.get("category", "diplomatic"),
         is_chinese=is_chinese,
-        body_text=body_for_quotes,
+        body_text=body_for_perspectives,
         source_name=source_name_str,
         title=title_for_perspectives,
+        lang=gen_lang,
         canada_perspective=canada_perspective,
         china_perspective=china_perspective,
     )
     s["original_zh_source"] = is_chinese
+    s["_source_lang"] = gen_lang  # used by translate_signals_batch
 
     if is_chinese:
         zh_url = (
@@ -341,80 +351,53 @@ def translate_signals_batch(
     body_truncate_chars: int = 500,
     english_fragment_threshold: float = 0.15,
 ) -> list[dict[str, Any]]:
-    """Translate signal titles and bodies to create bilingual content."""
+    """Translate signal titles, bodies, and perspectives to create bilingual content.
+
+    Each signal already has its source-language side populated (title, body,
+    perspectives).  This function fills in the missing language:
+
+    - English-source signals: EN already filled → translate to ZH
+    - Chinese-source signals: ZH already filled → translate to EN
+    """
     en_to_zh_texts: list[str] = []
-    en_to_zh_map: list[tuple[int, str]] = []
-    preserved_count = 0
-    retranslate_count = 0
+    en_to_zh_map: list[tuple[int, str, str]] = []  # (idx, field, subfield)
+    zh_to_en_texts: list[str] = []
+    zh_to_en_map: list[tuple[int, str, str]] = []
 
     for i, s in enumerate(signals):
-        preserved_title = s.pop("_preserved_zh_title", None)
-        preserved_body = s.pop("_preserved_zh_body", None)
+        source_lang = s.pop("_source_lang", "en")
 
-        if preserved_title or preserved_body:
-            if preserved_title:
-                s["title"]["zh"] = preserved_title
-            if preserved_body:
-                zh_summary = summarize_body(
-                    preserved_body, preserved_title or "", max_chars=body_truncate_chars
-                )
-                if zh_summary:
-                    s["body"]["zh"] = zh_summary
-                else:
-                    s["body"]["zh"] = preserved_body[:body_truncate_chars]
-            preserved_count += 1
-            continue
+        if source_lang == "zh":
+            # Chinese source → need English translations
+            _collect_missing_translations(
+                i, s, "zh", "en", zh_to_en_texts, zh_to_en_map,
+                body_truncate_chars,
+            )
+        else:
+            # English source → need Chinese translations
+            _collect_missing_translations(
+                i, s, "en", "zh", en_to_zh_texts, en_to_zh_map,
+                body_truncate_chars,
+            )
 
-        title_zh = s.get("title", {}).get("zh", "")
-        body_zh = s.get("body", {}).get("zh", "")
-        title_en = s.get("title", {}).get("en", "")
-        body_en = s.get("body", {}).get("en", "")
-
-        needs_retranslate = False
-        if title_zh and has_english_fragments(title_zh, english_fragment_threshold):
-            needs_retranslate = True
-        if body_zh and has_english_fragments(body_zh, english_fragment_threshold):
-            needs_retranslate = True
-
-        if needs_retranslate:
-            retranslate_count += 1
-            if title_en:
-                en_to_zh_texts.append(title_en)
-                en_to_zh_map.append((i, "title"))
-            if body_en:
-                truncated = body_en[:body_truncate_chars]
-                if len(body_en) > body_truncate_chars:
-                    truncated = truncated.rsplit(" ", 1)[0] + "..."
-                en_to_zh_texts.append(truncated)
-                en_to_zh_map.append((i, "body"))
-            continue
-
-        if title_zh and body_zh:
-            continue
-
-        if title_en:
-            en_to_zh_texts.append(title_en)
-            en_to_zh_map.append((i, "title"))
-        if body_en:
-            truncated = body_en[:body_truncate_chars]
-            if len(body_en) > body_truncate_chars:
-                truncated = truncated.rsplit(" ", 1)[0] + "..."
-            en_to_zh_texts.append(truncated)
-            en_to_zh_map.append((i, "body"))
-
+    # --- Batch translate EN → ZH ---
     if en_to_zh_texts:
         translated = translate_to_chinese(en_to_zh_texts)
-        for (sig_idx, field), zh_text in zip(en_to_zh_map, translated):
-            signals[sig_idx][field]["zh"] = zh_text
+        for (sig_idx, field, subfield), text in zip(en_to_zh_map, translated):
+            _set_translated(signals[sig_idx], field, subfield, "zh", text)
 
-    new_count = len(en_to_zh_texts) - retranslate_count
+    # --- Batch translate ZH → EN ---
+    if zh_to_en_texts:
+        translated = translate_to_english(zh_to_en_texts)
+        for (sig_idx, field, subfield), text in zip(zh_to_en_map, translated):
+            _set_translated(signals[sig_idx], field, subfield, "en", text)
+
     logger.info(
-        "Translation batch: %d preserved, %d new, %d re-translated for quality",
-        preserved_count,
-        new_count,
-        retranslate_count,
+        "Translation batch: %d EN→ZH, %d ZH→EN",
+        len(en_to_zh_texts), len(zh_to_en_texts),
     )
 
+    # --- Final cleanup of Chinese text ---
     cleaned_count = 0
     for s in signals:
         for field in ("title", "body"):
@@ -428,3 +411,65 @@ def translate_signals_batch(
         logger.info("Final cleanup fixed %d Chinese text fields", cleaned_count)
 
     return signals
+
+
+def _collect_missing_translations(
+    idx: int,
+    signal: dict[str, Any],
+    src_lang: str,
+    tgt_lang: str,
+    texts: list[str],
+    mapping: list[tuple[int, str, str]],
+    body_truncate_chars: int,
+) -> None:
+    """Collect texts that need translation from *src_lang* to *tgt_lang*.
+
+    Inspects title, body, and perspective fields, adding any non-empty
+    source-language text whose target-language side is empty.
+    """
+    # Title
+    title_src = signal.get("title", {}).get(src_lang, "")
+    title_tgt = signal.get("title", {}).get(tgt_lang, "")
+    if title_src and not title_tgt:
+        texts.append(title_src)
+        mapping.append((idx, "title", ""))
+
+    # Body
+    body_src = signal.get("body", {}).get(src_lang, "")
+    body_tgt = signal.get("body", {}).get(tgt_lang, "")
+    if body_src and not body_tgt:
+        truncated = body_src[:body_truncate_chars]
+        if len(body_src) > body_truncate_chars:
+            truncated = truncated.rsplit(" ", 1)[0] + "..." if " " in truncated else truncated
+        texts.append(truncated)
+        mapping.append((idx, "body", ""))
+
+    # Perspectives — canada and china views
+    persp = signal.get("perspectives", {})
+    for view in ("canada", "china"):
+        view_dict = persp.get(view)
+        if not isinstance(view_dict, dict):
+            continue
+        src_text = view_dict.get(src_lang, "")
+        tgt_text = view_dict.get(tgt_lang, "")
+        if src_text and not tgt_text:
+            texts.append(src_text)
+            mapping.append((idx, "perspectives", view))
+
+
+def _set_translated(
+    signal: dict[str, Any],
+    field: str,
+    subfield: str,
+    tgt_lang: str,
+    text: str,
+) -> None:
+    """Set a translated text value on a signal."""
+    if field == "perspectives" and subfield:
+        persp = signal.get("perspectives", {})
+        view_dict = persp.get(subfield)
+        if isinstance(view_dict, dict):
+            view_dict[tgt_lang] = text
+    elif field in ("title", "body"):
+        if isinstance(signal.get(field), dict):
+            signal[field][tgt_lang] = text

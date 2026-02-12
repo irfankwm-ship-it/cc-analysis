@@ -319,6 +319,12 @@ def body_jaccard(a: str, b: str) -> float:
 def is_duplicate(
     signal_a: dict[str, Any],
     signal_b: dict[str, Any],
+    *,
+    title_exact_en: float = TITLE_EXACT_THRESHOLD_EN,
+    title_exact_zh: float = TITLE_EXACT_THRESHOLD_ZH,
+    title_fuzzy_low: float = TITLE_FUZZY_LOW,
+    body_jaccard_threshold: float = BODY_JACCARD_THRESHOLD,
+    entity_body_jaccard_threshold: float = ENTITY_BODY_JACCARD_THRESHOLD,
 ) -> tuple[bool, str]:
     """Check if *signal_a* is a duplicate of *signal_b*.
 
@@ -345,7 +351,7 @@ def is_duplicate(
     is_chinese = lang_a == "zh" or lang_b == "zh"
 
     # Choose title threshold based on language
-    title_threshold = TITLE_EXACT_THRESHOLD_ZH if is_chinese else TITLE_EXACT_THRESHOLD_EN
+    title_threshold = title_exact_zh if is_chinese else title_exact_en
 
     # Tier 2: Title similarity (language-aware threshold)
     norm_a = normalize_text(title_a)
@@ -356,9 +362,9 @@ def is_duplicate(
         return True, "title"
 
     # Tier 3: Title in fuzzy range + body overlap
-    if t_sim >= TITLE_FUZZY_LOW:
+    if t_sim >= title_fuzzy_low:
         b_sim = body_jaccard(body_a, body_b)
-        if b_sim >= BODY_JACCARD_THRESHOLD:
+        if b_sim >= body_jaccard_threshold:
             return True, "title+body"
 
     # Tier 4: Entity-based dedup — same entities + same category + body overlap
@@ -374,7 +380,7 @@ def is_duplicate(
 
         if (len(common_entities) >= 2 or entity_overlap >= 0.5) and category_a == category_b:
             b_sim = body_jaccard(body_a, body_b)
-            if b_sim >= ENTITY_BODY_JACCARD_THRESHOLD:
+            if b_sim >= entity_body_jaccard_threshold:
                 return True, "entity+body"
 
     # Tier 5: Same-person same-event dedup
@@ -461,6 +467,12 @@ def load_recent_signals(
 def deduplicate_signals(
     signals: list[dict[str, Any]],
     previous_signals: list[dict[str, Any]] | None = None,
+    *,
+    title_exact_en: float = TITLE_EXACT_THRESHOLD_EN,
+    title_exact_zh: float = TITLE_EXACT_THRESHOLD_ZH,
+    title_fuzzy_low: float = TITLE_FUZZY_LOW,
+    body_jaccard_threshold: float = BODY_JACCARD_THRESHOLD,
+    entity_body_jaccard_threshold: float = ENTITY_BODY_JACCARD_THRESHOLD,
 ) -> tuple[list[dict[str, Any]], DedupStats]:
     """Remove duplicate signals from the current batch.
 
@@ -479,13 +491,21 @@ def deduplicate_signals(
     stats = DedupStats(total_before=len(signals))
     previous_signals = previous_signals or []
 
+    _dedup_kw = dict(
+        title_exact_en=title_exact_en,
+        title_exact_zh=title_exact_zh,
+        title_fuzzy_low=title_fuzzy_low,
+        body_jaccard_threshold=body_jaccard_threshold,
+        entity_body_jaccard_threshold=entity_body_jaccard_threshold,
+    )
+
     # --- Pass 1: Within-day dedup ---
     kept: list[dict[str, Any]] = []
 
     for signal in signals:
         dup_found = False
         for existing in kept:
-            is_dup, reason = is_duplicate(signal, existing)
+            is_dup, reason = is_duplicate(signal, existing, **_dedup_kw)
             if is_dup:
                 title, _, _ = _extract_comparable_text(signal)
                 ex_title, _, _ = _extract_comparable_text(existing)
@@ -514,7 +534,7 @@ def deduplicate_signals(
         for signal in kept:
             dup_found = False
             for prev in previous_signals:
-                is_dup, reason = is_duplicate(signal, prev)
+                is_dup, reason = is_duplicate(signal, prev, **_dedup_kw)
                 if is_dup:
                     title, _, _ = _extract_comparable_text(signal)
                     prev_title, _, _ = _extract_comparable_text(prev)
