@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from analysis.llm import _call_ollama, _parse_perspectives, llm_summarize, llm_translate
+from analysis.llm import (
+    _call_ollama,
+    _parse_perspectives,
+    _strip_prompt_artifacts,
+    llm_summarize,
+    llm_translate,
+)
 
 
 class TestCallOllama:
@@ -165,3 +171,129 @@ class TestParsePerspectives:
         assert result is not None
         assert "sovereign" in result["china"]
         assert "concern" in result["canada"]
+
+    def test_ottawa_beijing_markers(self) -> None:
+        """New OTTAWA/BEIJING markers parse correctly."""
+        text = (
+            "OTTAWA perspective: This trade restriction directly impacts "
+            "Canadian canola exporters and Ottawa may seek WTO arbitration.\n\n"
+            "BEIJING perspective: China frames the restriction as a food "
+            "safety measure consistent with its regulatory sovereignty."
+        )
+        result = _parse_perspectives(text, "ottawa perspective", "beijing perspective", "en")
+        assert result is not None
+        assert "canola" in result["canada"]
+        assert "sovereignty" in result["china"]
+
+    def test_zh_ottawa_beijing_markers(self) -> None:
+        """New 渥太华视角/北京视角 markers parse correctly."""
+        text = (
+            "渥太华视角：加拿大油菜籽出口商直接受到影响，渥太华可能寻求世贸组织仲裁。\n\n"
+            "北京视角：中方将此限制定性为符合监管主权的食品安全措施。"
+        )
+        result = _parse_perspectives(text, "渥太华视角", "北京视角", "zh")
+        assert result is not None
+        assert "渥太华" in result["canada"]
+        assert "中方" in result["china"]
+
+    def test_short_ottawa_beijing_markers(self) -> None:
+        """Short OTTAWA/BEIJING markers (without 'perspective') parse correctly."""
+        text = (
+            "OTTAWA: This trade restriction directly impacts "
+            "Canadian canola exporters and Ottawa may seek WTO arbitration.\n\n"
+            "BEIJING: China frames the restriction as a food "
+            "safety measure consistent with its regulatory sovereignty."
+        )
+        result = _parse_perspectives(text, "ottawa", "beijing", "en")
+        assert result is not None
+        assert "canola" in result["canada"]
+        assert "sovereignty" in result["china"]
+
+    def test_short_zh_markers(self) -> None:
+        """Short 渥太华/北京 markers (without 视角) parse correctly."""
+        text = (
+            "渥太华：加拿大油菜籽出口商直接受到影响，渥太华可能寻求世贸组织仲裁。\n\n"
+            "北京：中方将此限制定性为符合监管主权的食品安全措施。"
+        )
+        result = _parse_perspectives(text, "渥太华", "北京", "zh")
+        assert result is not None
+        assert "渥太华" in result["canada"]
+        assert "中方" in result["china"]
+
+
+class TestStripPromptArtifacts:
+    """Tests for _strip_prompt_artifacts."""
+
+    def test_strips_en_parenthetical_prefix(self) -> None:
+        text = "(Pragmatic, Canadian interests, values-aware): Ottawa is concerned about the tariff impact."
+        result = _strip_prompt_artifacts(text)
+        assert result == "Ottawa is concerned about the tariff impact."
+
+    def test_strips_en_uppercase_parenthetical(self) -> None:
+        text = "(PRAGMATIC, CANADIAN INTERESTS): Ottawa should consider trade options."
+        result = _strip_prompt_artifacts(text)
+        assert result == "Ottawa should consider trade options."
+
+    def test_strips_sovereignty_prefix(self) -> None:
+        text = "(Sovereignty-focused, official framing): China considers this matter internal."
+        result = _strip_prompt_artifacts(text)
+        assert result == "China considers this matter internal."
+
+    def test_strips_zh_parenthetical(self) -> None:
+        text = "（务实、加拿大利益优先）：加拿大对此表示关切。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "加拿大对此表示关切。"
+
+    def test_strips_zh_sovereignty_parenthetical(self) -> None:
+        text = "（主权优先、官方定调）：中方认为这是内政问题。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "中方认为这是内政问题。"
+
+    def test_strips_question_form_en(self) -> None:
+        text = "How does this affect Canada specifically? Ottawa views the tariff increase with alarm."
+        result = _strip_prompt_artifacts(text)
+        assert result == "Ottawa views the tariff increase with alarm."
+
+    def test_strips_question_form_zh(self) -> None:
+        text = "这对加拿大有什么具体影响？加拿大方面高度关注关税变化。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "加拿大方面高度关注关税变化。"
+
+    def test_strips_rules_block(self) -> None:
+        text = "Ottawa is concerned about the situation.\n\nRULES:\n- Must reference facts\n- Must differ"
+        result = _strip_prompt_artifacts(text)
+        assert result == "Ottawa is concerned about the situation."
+
+    def test_strips_zh_rules_block(self) -> None:
+        text = "中方对此表示反对。\n\n规则：\n- 必须引用具体事实\n- 两个视角必须不同"
+        result = _strip_prompt_artifacts(text)
+        assert result == "中方对此表示反对。"
+
+    def test_leaves_clean_text_unchanged(self) -> None:
+        text = "Ottawa is closely monitoring the trade dispute and considering diplomatic options."
+        result = _strip_prompt_artifacts(text)
+        assert result == text
+
+    def test_leaves_clean_zh_unchanged(self) -> None:
+        text = "加拿大密切关注贸易争端，正在考虑外交选项。"
+        result = _strip_prompt_artifacts(text)
+        assert result == text
+
+    def test_integration_with_parse_perspectives(self) -> None:
+        """Artifact stripping works inside _parse_perspectives."""
+        text = (
+            "OTTAWA: (Pragmatic, Canadian interests): "
+            "Ottawa views the tariff escalation with deep concern, "
+            "as Canadian canola exports face significant disruption.\n\n"
+            "BEIJING: (Sovereignty-focused, official framing): "
+            "China frames these measures as legitimate food safety enforcement "
+            "consistent with its sovereign regulatory authority."
+        )
+        result = _parse_perspectives(text, "ottawa", "beijing", "en")
+        assert result is not None
+        # Should not contain the parenthetical prefix
+        assert "(Pragmatic" not in result["canada"]
+        assert "(Sovereignty" not in result["china"]
+        # Should still contain the actual perspective content
+        assert "canola" in result["canada"]
+        assert "sovereign" in result["china"]

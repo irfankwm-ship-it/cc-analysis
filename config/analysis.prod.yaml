@@ -21,11 +21,11 @@ validation:
 
 thresholds:
   dedup:
-    title_exact_en: 0.85
+    title_exact_en: 0.80
     title_exact_zh: 0.70
     title_fuzzy_low: 0.35
-    body_jaccard: 0.50
-    entity_body_jaccard: 0.40
+    body_jaccard: 0.40
+    entity_body_jaccard: 0.35
     lookback_days: 7
   text_processing:
     summary_max_chars: 500

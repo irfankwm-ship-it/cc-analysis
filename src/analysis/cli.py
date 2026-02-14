@@ -19,7 +19,7 @@ import click
 
 from analysis import __version__
 from analysis.active_situations import track_situations
-from analysis.classifiers.category import classify_signal
+from analysis.classifiers.category import classify_signal, validate_category
 from analysis.classifiers.severity import classify_severity
 from analysis.classifiers.source_mapper import map_signal_source_tier
 from analysis.config import PROJECT_ROOT, load_config
@@ -148,7 +148,7 @@ def run(
 
     # Value filter
     pre_count = len(raw_signals)
-    raw_signals = filter_low_value_signals(raw_signals, min_score=0)
+    raw_signals = filter_low_value_signals(raw_signals, min_score=1)
     if len(raw_signals) < pre_count:
         logger.info(
             "Value filter: kept %d of %d signals",
@@ -190,6 +190,21 @@ def run(
 
     for signal in raw_signals:
         category = classify_signal(signal, config.keywords.categories)
+        # Validate category with strong-indicator override rules
+        parts: list[str] = []
+        title_val = signal.get("title", "")
+        if isinstance(title_val, dict):
+            parts.extend([title_val.get("en", ""), title_val.get("zh", "")])
+        elif isinstance(title_val, str):
+            parts.append(title_val)
+        for bk in ("body", "body_text"):
+            bv = signal.get(bk, "")
+            if isinstance(bv, dict):
+                parts.extend([bv.get("en", ""), bv.get("zh", "")])
+            elif isinstance(bv, str) and bv:
+                parts.append(bv)
+                break
+        category = validate_category(" ".join(parts), category)
         source_tier = map_signal_source_tier(signal)
         severity = classify_severity(
             signal,

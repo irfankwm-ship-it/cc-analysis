@@ -67,6 +67,21 @@ _LOW_VALUE_PATTERNS = [
     r"\b(?:new year.{0,10}market|lunar new year.{0,10}fair|spring festival.{0,10}market)\b",
     # Pop culture / fictional characters
     r"\b(?:harry potter|hogwarts|draco malfoy|marvel|avengers|star wars|anime)\b",
+    # Zodiac/festival decorations (lifestyle, not policy)
+    r"\b(?:zodiac|horoscope|paper.?cut|lantern display|festive atmosphere|decorat)\b",
+    r"(?:剪纸|灯笼|生肖|年画|窗花|喜庆氛围|装饰)",
+    # Pet/animal viral
+    r"\b(?:cute|adorable|heartwarming).{0,15}(?:pet|puppy|kitten|panda|animal)\b",
+    r"(?:萌宠|可爱.*宠物|暖心)",
+    # Pure obituaries without policy angle
+    r"\b(?:passed away|funeral|memorial service|obituary).{0,20}(?:age|aged|years old)\b",
+    r"(?:逝世.*享年|追悼会|讣告)",
+    # Routine ceremonial greetings
+    r"\b(?:extends? greetings|sends? congratulations|courtesy call|new year.{0,5}message)\b",
+    r"(?:致以.*问候|礼节性拜访|新年贺词|致以祝贺)",
+    # Pure population/demographic statistics
+    r"\b(?:population (?:figure|statistic|estimate|data)).{0,20}(?:percent|%|increase|decrease)\b",
+    r"(?:人口.*临时数字|人口统计)",
     # Chinese low-value patterns (CJK — no word boundaries)
     r"(?:车祸|交通事故|撞车|坠机)",
     r"(?:谋杀|刺伤|袭击|抢劫|盗窃|纵火)",
@@ -92,21 +107,131 @@ _LOW_VALUE_PATTERNS = [
 ]
 
 _HIGH_VALUE_KEYWORDS = [
+    # Canada-China bilateral
     "canada-china", "canadian government", "ottawa", "trudeau", "carney",
     "global affairs canada", "parliament", "bill c-",
+    # Canadian officials & institutions
+    "joly", "champagne", "poilievre", "freeland", "anand",
+    "csis", "rcmp", "cse", "ircc", "prime minister",
+    # Major China policy
     "xi jinping", "state council", "politburo", "communist party",
     "foreign ministry", "mfa", "ministry of foreign affairs",
+    # Chinese officials
+    "li qiang", "wang yi", "he lifeng", "cai qi",
+    # Geopolitical
     "sanctions", "tariff", "trade war", "export ban", "entity list",
     "five eyes", "aukus", "quad", "indo-pacific", "south china sea",
+    # Tech/security
     "huawei", "tiktok", "semiconductor", "rare earth", "5g",
     "cyber", "espionage", "interference", "national security",
+    # Human rights
     "uyghur", "xinjiang", "hong kong", "tibet", "human rights",
     "censorship", "democracy", "crackdown",
+    # Canadian exports
+    "canola", "lobster", "pork", "lumber", "potash", "mining",
+    # Policy buzzwords
+    "decoupling", "de-risking", "critical minerals", "fentanyl",
+    "foreign agent", "transnational repression",
+    # China tech/industry
+    "deepseek", "baidu", "alibaba", "tencent", "xiaomi",
+    "byd", "catl", "dji", "smic", "zte", "hikvision", "sensetime",
+    "nio", "xpeng", "li auto", "geely", "tsmc", "bytedance",
+    "beidou", "tiangong", "autonomous driving", "large language model",
+    # China global economic influence
+    "cips", "dedollarization", "yuan settlement", "rcep", "brics", "sco",
+    "asean", "belt and road", "aiib", "port acquisition", "debt trap",
+    "china development bank",
+    # China military/security
+    "coast guard", "missile test", "nuclear test", "military exercise",
+    "aircraft carrier", "hypersonic", "nine-dash line", "adiz",
+    "freedom of navigation",
+    # Energy/climate
+    "solar panel", "lithium", "ev export", "carbon market",
+    "nuclear power plant", "overcapacity", "clean energy",
+    # Supply chain
+    "reshoring", "friendshoring", "chip equipment", "asml",
+    "export control", "industrial subsidy", "dual use", "chip war",
+    # Business environment
+    "exit ban", "anti-espionage law", "data security law", "digital yuan",
+    # Hong Kong governance
+    "national security law", "article 23", "jimmy lai", "apple daily",
+    "press freedom", "brain drain", "capital flight",
+    # Domestic social
+    "birth rate", "aging population", "pension reform", "youth unemployment",
+    "lying flat", "let it rot",
+    # Taiwan dynamics
+    "dpp", "kmt", "median line", "weapons sale", "taiwan relations act",
+    "one china policy", "silicon shield",
+    # Governance/leadership
+    "third plenum", "two sessions", "central economic work conference",
+    "anti-corruption", "discipline inspection",
+    # Media/information
+    "great firewall", "state media", "wolf warrior", "weibo", "douyin",
+    # Food/health
+    "food security", "grain reserves", "precursor chemicals", "food safety",
+    # Financial system
+    "e-cny", "swift alternative", "yuan internationalization",
+    "cross-border payment",
+    # Property/economic crisis
+    "evergrande", "country garden", "property crisis", "common prosperity",
+    "dual circulation", "new productive forces", "made in china 2025",
+    # Chinese keywords - Major policy
     "习近平", "国务院", "中央军委", "政治局", "中共中央",
     "外交部", "商务部", "发改委",
+    # Chinese officials
+    "李强", "王毅", "何立峰", "蔡奇",
+    # Chinese - Geopolitical
     "制裁", "关税", "贸易战", "南海", "台海", "两岸",
+    # Chinese - Tech/security
     "华为", "半导体", "芯片", "稀土", "网络安全",
+    # Chinese - Canada
     "加拿大", "渥太华", "特鲁多", "加中关系",
+    # Chinese - Canadian exports
+    "油菜籽", "龙虾", "猪肉", "木材", "钾肥",
+    # Chinese - Policy buzzwords
+    "脱钩", "去风险", "关键矿产", "芬太尼", "跨国镇压",
+    # Chinese - China tech/industry
+    "深度求索", "百度", "阿里巴巴", "腾讯", "小米",
+    "比亚迪", "宁德时代", "大疆", "中芯国际", "中兴",
+    "海康威视", "商汤", "蔚来", "小鹏", "理想", "吉利",
+    "台积电", "字节跳动", "北斗", "天宫",
+    "自动驾驶", "大模型", "突破", "首发", "自主研发",
+    # Chinese - Global economic influence
+    "去美元化", "人民币结算", "区域全面经济伙伴关系",
+    "金砖", "上合组织", "东盟", "亚投行", "港口收购",
+    "债务陷阱", "国家开发银行", "签署协议", "进博会", "广交会",
+    # Chinese - Military/security
+    "海警", "导弹试射", "核试验", "军事演习", "航母",
+    "高超音速", "九段线", "自由航行", "远海训练", "战备巡逻", "联合军演",
+    # Chinese - Energy/climate
+    "光伏", "锂电", "新能源出口", "碳市场", "核电站",
+    "产能过剩", "清洁能源", "风电",
+    # Chinese - Supply chain
+    "回流", "光刻机", "出口管制", "产业补贴", "军民融合", "芯片战争",
+    # Chinese - Business environment
+    "出境禁令", "反间谍法", "数据安全法", "数字人民币", "营商环境",
+    # Chinese - Hong Kong
+    "国安法", "二十三条", "黎智英", "苹果日报",
+    "新闻自由", "人才外流", "资金外流",
+    # Chinese - Domestic social
+    "出生率", "老龄化", "养老金改革", "青年失业率",
+    "躺平", "摆烂", "内卷", "双减", "延迟退休", "人口负增长",
+    # Chinese - Taiwan
+    "民进党", "国民党", "海峡中线", "军售", "台湾关系法",
+    "硅盾", "武统", "和统", "台海危机",
+    # Chinese - Governance/leadership
+    "三中全会", "两会", "中央经济工作会议", "反腐", "纪检",
+    "中央纪委", "巡视组", "统战",
+    # Chinese - Media/information
+    "防火长城", "官媒", "战狼外交", "微博", "抖音",
+    "信息战", "舆论管控", "封号",
+    # Chinese - Food/health
+    "粮食安全", "粮食储备", "前体化学品", "食品安全", "集采",
+    # Chinese - Financial system
+    "人民币国际化", "跨境支付",
+    # Chinese - Property/economic crisis
+    "恒大", "碧桂园", "房地产危机", "共同富裕", "双循环",
+    "新质生产力", "中国制造2025",
 ]
 
 _CANADA_KEYWORDS = [
@@ -114,7 +239,9 @@ _CANADA_KEYWORDS = [
     "canola", "huawei", "meng wanzhou",
     "five eyes", "norad", "arctic",
     "bilateral", "canada-china",
-    "加拿大", "渥太华", "特鲁多",
+    "carney", "poilievre", "joly", "champagne", "freeland",
+    "csis", "rcmp", "british columbia", "alberta", "ontario",
+    "加拿大", "渥太华", "特鲁多", "加中", "卡尼",
 ]
 
 _CHINA_KEYWORDS = [

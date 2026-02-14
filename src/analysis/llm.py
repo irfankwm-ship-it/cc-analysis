@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 import requests
@@ -24,6 +25,32 @@ _OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 _OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY", "")
 _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_K_M")
 _TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "120"))  # Configurable via env var
+
+
+_PROMPT_ARTIFACT_PATTERNS = [
+    # Parenthetical role instructions (EN) — case insensitive
+    r"^\s*\((?:pragmatic|sovereignty|practical|prioritizing)[\w\s,\-\u2014\u2013\u00b7]*?\)\s*:?\s*",
+    r"^\s*\((?:PRAGMATIC|SOVEREIGNTY|PRACTICAL|PRIORITIZING)[\w\s,\-\u2014\u2013\u00b7]*?\)\s*:?\s*",
+    # Parenthetical role instructions (ZH)
+    r"^\s*[\uff08(](?:\u52a1\u5b9e|\u4e3b\u6743|\u5b9e\u9645)[\u4e00-\u9fff\w\s,\u3001\uff0c\u00b7\u2014\u2013]*?[\uff09)]\s*[:：]?\s*",
+    # Question-form prompts that leaked
+    r"^\s*(?:What specific impacts|How (?:does|will) (?:the )?official|How does this affect)\b[^.?]*\?\s*",
+    r"^\s*(?:\u8fd9\u5bf9\u52a0\u62ff\u5927|\u5b98\u65b9\u5317\u4eac\u5982\u4f55|\u5177\u4f53\u6709\u4ec0\u4e48\u5f71\u54cd)[^\u3002\uff1f]*[\uff1f?]\s*",
+    # RULES block leaked into output
+    r"\n*RULES:[\s\S]*$",
+    r"\n*\u89c4\u5219[\uff1a:][\s\S]*$",
+]
+
+
+def _strip_prompt_artifacts(text: str) -> str:
+    """Remove leaked LLM prompt instructions from perspective text.
+
+    Applied sequentially so that prefix patterns are removed first,
+    then trailing RULES blocks.
+    """
+    for pattern in _PROMPT_ARTIFACT_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    return text
 
 
 def _call_ollama(prompt: str) -> str | None:
@@ -169,35 +196,42 @@ def llm_generate_perspectives(
     if lang == "zh":
         source_context = "中方媒体" if is_chinese_source else "西方媒体"
         prompt = (
-            f"分析以下中加关系新闻，生成两个不同视角的简要评论。\n\n"
+            f"分析以下中加关系信号，写出两个截然不同的视角。\n\n"
+            f"要求：\n"
+            f"- 渥太华视角：务实、加拿大利益优先、关注价值观\n"
+            f"- 北京视角：主权优先、官方定调、官媒口吻\n"
+            f"- 每个视角写2-3句话，引用标题中的具体事实\n"
+            f"- 两个视角的语气和立场必须明显不同\n"
+            f"- 不要使用适用于任何新闻的泛泛之词\n"
+            f"- 仅输出两个视角内容，不要添加其他文字\n\n"
             f"类别：{category}\n"
             f"来源：{source_context}\n"
             f"标题：{title}\n"
             f"摘要：{body_truncated}\n\n"
-            f"请分别从两个视角各写2-3句话：\n\n"
-            f"加拿大视角：[政策影响、利益相关方关切、价值观框架]\n\n"
-            f"北京视角：[官方立场、主权关切、官媒叙事]\n\n"
-            f"仅输出两个视角内容，不要添加其他文字。"
+            f"渥太华：\n\n"
+            f"北京：\n"
         )
-        marker_canada = "加拿大视角"
-        marker_china = "北京视角"
+        marker_canada = "渥太华"
+        marker_china = "北京"
     else:
         source_context = "Chinese media" if is_chinese_source else "Western media"
         prompt = (
-            f"Analyze this Canada-China news and generate two perspectives.\n\n"
+            f"Analyze this Canada-China signal and write TWO DISTINCT perspectives.\n\n"
+            f"Instructions:\n"
+            f"- Write the OTTAWA perspective as pragmatic, focused on Canadian interests, values-aware\n"
+            f"- Write the BEIJING perspective as sovereignty-focused, using official framing, state-media tone\n"
+            f"- Each perspective: 2-3 sentences referencing specific facts from the headline\n"
+            f"- The two perspectives MUST sound different\n"
+            f"- Do NOT use generic phrases. Write ONLY the perspectives.\n\n"
             f"Category: {category}\n"
             f"Source: {source_context}\n"
             f"Headline: {title}\n"
             f"Summary: {body_truncated}\n\n"
-            f"Write exactly two brief perspectives (2-3 sentences each):\n\n"
-            f"Canadian perspective: [policy implications, stakeholder concerns, "
-            f"values-based framing]\n\n"
-            f"Beijing perspective: [official framing, sovereignty concerns, "
-            f"state media narrative]\n\n"
-            f"Write ONLY the two perspectives, nothing else."
+            f"OTTAWA:\n\n"
+            f"BEIJING:\n"
         )
-        marker_canada = "canadian perspective"
-        marker_china = "beijing perspective"
+        marker_canada = "ottawa"
+        marker_china = "beijing"
 
     result = _call_ollama(prompt)
     if not result:
@@ -253,6 +287,10 @@ def _parse_perspectives(
         ca_label_pos = text_lower.find(marker_canada.lower())
         china_text = text[cn_idx:ca_label_pos].strip()
         canada_text = text[ca_idx:].strip()
+
+    # Strip leaked prompt artifacts
+    canada_text = _strip_prompt_artifacts(canada_text)
+    china_text = _strip_prompt_artifacts(china_text)
 
     # Validate minimum length
     min_len = 10 if lang == "zh" else 20

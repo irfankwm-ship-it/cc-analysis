@@ -301,6 +301,106 @@ class TestChineseBilateral:
         assert is_china_relevant(signal)
 
 
+class TestFilterLowValueMinScore1:
+    """Test filter_low_value_signals with min_score=1."""
+
+    def test_drops_score_zero_signal(self) -> None:
+        """A signal scoring 0 should be dropped with min_score=1."""
+        signals = [
+            {"title": "Some generic China news story without strong keywords"},
+        ]
+        result = filter_low_value_signals(signals, min_score=1)
+        # Score 0 signal should be filtered out
+        assert len(result) == 0
+
+    def test_keeps_high_value_signal(self) -> None:
+        """A signal with high-value keywords should pass min_score=1."""
+        signals = [
+            {"title": "Xi Jinping announces sanctions on Canada tariff trade war"},
+        ]
+        result = filter_low_value_signals(signals, min_score=1)
+        assert len(result) == 1
+
+
+class TestNewHighValueKeywords:
+    """Test that newly added high-value keywords boost scores."""
+
+    def test_deepseek_boosts(self) -> None:
+        signal = {"title": "China DeepSeek AI model challenges Western tech dominance"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_fentanyl_boosts(self) -> None:
+        signal = {"title": "China fentanyl precursor chemicals crackdown"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_byd_boosts(self) -> None:
+        signal = {"title": "BYD electric vehicle sales surpass Toyota"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_evergrande_boosts(self) -> None:
+        signal = {"title": "China Evergrande property crisis deepens"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_coast_guard_boosts(self) -> None:
+        signal = {"title": "China coast guard actions near disputed islands"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_zh_digital_yuan_boosts(self) -> None:
+        signal = {"title": "数字人民币跨境支付试点扩大"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+    def test_zh_lying_flat_boosts(self) -> None:
+        signal = {"title": "青年失业率上升 躺平文化蔓延"}
+        score, _ = compute_signal_value(signal)
+        assert score >= 1
+
+
+class TestNewLowValuePatterns:
+    """Test that newly added low-value patterns penalize correctly."""
+
+    def test_zodiac_penalty(self) -> None:
+        signal = {"title": "Chinese zodiac horoscope predictions for the new year"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_lantern_display_penalty(self) -> None:
+        signal = {"title": "剪纸灯笼展览庆祝新年"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_cute_panda_penalty(self) -> None:
+        signal = {"title": "Adorable panda cubs heartwarming story goes viral"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_obituary_penalty(self) -> None:
+        signal = {"title": "Chinese scholar passed away at age 89 funeral memorial service"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_ceremonial_greetings_penalty(self) -> None:
+        signal = {"title": "President extends greetings and sends congratulations"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+    def test_zh_ceremonial_penalty(self) -> None:
+        signal = {"title": "领导人致以新年贺词和问候"}
+        score, reason = compute_signal_value(signal)
+        assert score < 0
+        assert "low-value" in reason
+
+
 class TestFilterAndPrioritize:
     def test_basic_filtering(self) -> None:
         signals = [

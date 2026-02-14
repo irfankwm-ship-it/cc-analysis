@@ -56,12 +56,15 @@ def _score_text_against_keywords(
 
     for keyword in keywords:
         kw_lower = keyword.lower()
-        # Check exact word match first (for single-word keywords)
-        if " " not in kw_lower:
+        # Single-word ASCII keywords: exact word match ONLY (no substring)
+        # This prevents "AI" matching inside "lai", "said", etc.
+        # CJK keywords need substring matching since Chinese has no word boundaries.
+        is_cjk = any("\u4e00" <= c <= "\u9fff" for c in kw_lower)
+        if " " not in kw_lower and not is_cjk:
             if kw_lower in words:
                 score += exact_weight
-                continue
-        # Multi-word keyword or phrase match
+            continue
+        # Multi-word keyword, phrase, or CJK keyword — substring match
         if kw_lower in text_lower:
             score += exact_weight
             continue
@@ -98,9 +101,10 @@ def _fallback_category(text: str) -> str:
         'warship', 'fighter jet', 'bomber',
     )):
         return "military"
-    # Technology signals
-    if any(w in t for w in (
-        'chip', 'semiconductor', 'ai ', 'artificial intelligence',
+    # Technology signals (use word boundary for 'ai' to avoid matching 'lai')
+    fallback_words = set(t.split())
+    if 'ai' in fallback_words or any(w in t for w in (
+        'chip', 'semiconductor', 'artificial intelligence',
         'cyber', '5g', 'quantum', 'robot',
     )):
         return "technology"
@@ -240,6 +244,73 @@ def classify_category(
             return cat
 
     return top_categories[0]
+
+
+_TRADE_STRONG_INDICATORS = [
+    r"\btariff\b", r"\bimport\b", r"\bexport\b", r"\btrade deal\b",
+    r"\bdumping\b", r"\bquota\b", r"\btrade (?:war|deficit|surplus|dispute)\b",
+    r"\bcustoms\b", r"\bduty\b", r"\btrade sanction\b",
+    r"关税", r"进口", r"出口", r"贸易", r"倾销", r"配额", r"海关",
+]
+
+_DIPLOMATIC_STRONG_INDICATORS = [
+    r"\bambassador\b", r"\bembassy\b", r"\bdiplomatic\b", r"\bforeign ministry\b",
+    r"\bconsulate\b", r"\bsummoned\b", r"\bdiplomat\b",
+    r"大使", r"使馆", r"外交", r"外交部", r"领事馆", r"召见",
+]
+
+_MILITARY_STRONG_INDICATORS = [
+    r"\bcoast guard\b", r"\bnavy\b", r"\bmissile\b", r"\bmilitary exercise\b",
+    r"\bnuclear test\b", r"\bwarship\b", r"\bfighter jet\b", r"\bbomber\b",
+    r"\bpla\b", r"\bair force\b",
+    r"海警", r"海军", r"导弹", r"军事演习", r"核试验", r"军舰", r"战斗机",
+    r"解放军", r"空军",
+]
+
+
+def validate_category(signal_text: str, current_category: str) -> str:
+    """Validate and potentially override a signal's category.
+
+    Uses strong indicator patterns to detect misclassifications. Requires
+    at least 2 strong indicators to override the current category.
+
+    Args:
+        signal_text: Combined text from the signal (title + body, EN + ZH).
+        current_category: The category assigned by classify_signal().
+
+    Returns:
+        The validated (possibly overridden) category.
+    """
+    text_lower = signal_text.lower()
+
+    override_rules: list[tuple[list[str], str, frozenset[str]]] = [
+        (
+            _TRADE_STRONG_INDICATORS,
+            "trade",
+            frozenset({"technology", "social", "political"}),
+        ),
+        (
+            _DIPLOMATIC_STRONG_INDICATORS,
+            "diplomatic",
+            frozenset({"technology", "social"}),
+        ),
+        (
+            _MILITARY_STRONG_INDICATORS,
+            "military",
+            frozenset({"technology", "trade", "social"}),
+        ),
+    ]
+
+    for indicators, target_category, overridable in override_rules:
+        if current_category not in overridable:
+            continue
+        match_count = sum(
+            1 for pat in indicators if re.search(pat, text_lower)
+        )
+        if match_count >= 2:
+            return target_category
+
+    return current_category
 
 
 def classify_signal(

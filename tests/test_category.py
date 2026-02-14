@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from analysis.classifiers.category import classify_category, classify_signal
+from analysis.classifiers.category import classify_category, classify_signal, validate_category
 
 
 class TestClassifyCategory:
@@ -176,6 +176,56 @@ class TestLegalKeywords:
         assert classify_category(text, categories_dict) == "legal"
 
 
+class TestMilitaryKeywords:
+    """Test military keyword additions (submarine, fleet, etc.)."""
+
+    def test_nuclear_submarine_fleet(
+        self, categories_dict: dict[str, dict[str, list[str]]]
+    ) -> None:
+        text = "China launches nuclear submarine fleet in South China Sea"
+        assert classify_category(text, categories_dict) == "military"
+
+    def test_carrier_destroyer(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "PLA Navy carrier and destroyer group conducts exercises"
+        assert classify_category(text, categories_dict) == "military"
+
+    def test_ballistic_missile(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "China tests ballistic missile submarine capability"
+        assert classify_category(text, categories_dict) == "military"
+
+
+class TestDiplomaticKeywords:
+    """Test diplomatic keyword additions (condemn, sovereignty, etc.)."""
+
+    def test_condemns_lai(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "China condemns Lai war instigator remarks at press conference"
+        assert classify_category(text, categories_dict) == "diplomatic"
+
+    def test_denounces_sovereignty(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "Beijing denounces violations of sovereignty and territorial integrity"
+        assert classify_category(text, categories_dict) == "diplomatic"
+
+    def test_slams_rebukes(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        text = "China slams and rebukes foreign interference in domestic affairs"
+        assert classify_category(text, categories_dict) == "diplomatic"
+
+
+class TestAISubstringBug:
+    """Test that 'AI' as a single-word keyword doesn't match substrings like 'lai'."""
+
+    def test_ai_semiconductor_still_technology(
+        self, categories_dict: dict[str, dict[str, list[str]]]
+    ) -> None:
+        text = "AI semiconductor chip development accelerates"
+        assert classify_category(text, categories_dict) == "technology"
+
+    def test_lai_not_technology(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
+        """'Lai Ching-te' should NOT match 'AI' keyword via substring."""
+        text = "Lai Ching-te interview on cross-strait relations"
+        result = classify_category(text, categories_dict)
+        assert result != "technology"
+
+
 class TestFallbackCategory:
     """Test _fallback_category for crime keywords."""
 
@@ -187,3 +237,65 @@ class TestFallbackCategory:
     def test_mule_fallback(self, categories_dict: dict[str, dict[str, list[str]]]) -> None:
         from analysis.classifiers.category import _fallback_category
         assert _fallback_category("Suspect convicted as mule in criminal trial") == "legal"
+
+
+class TestValidateCategory:
+    """Tests for validate_category override rules."""
+
+    def test_overrides_technology_to_trade_for_tariff(self) -> None:
+        text = "China imposes new tariff on imports, export restrictions tightened"
+        result = validate_category(text, "technology")
+        assert result == "trade"
+
+    def test_overrides_technology_to_diplomatic_for_embassy(self) -> None:
+        text = "Ambassador summoned to embassy for diplomatic discussions"
+        result = validate_category(text, "technology")
+        assert result == "diplomatic"
+
+    def test_overrides_technology_to_military(self) -> None:
+        text = "Coast guard navy deployed near contested waters"
+        result = validate_category(text, "technology")
+        assert result == "military"
+
+    def test_does_not_override_correct_trade(self) -> None:
+        text = "New tariff on imports increases trade deficit"
+        result = validate_category(text, "trade")
+        assert result == "trade"
+
+    def test_does_not_override_correct_diplomatic(self) -> None:
+        text = "Ambassador meets with foreign ministry officials"
+        result = validate_category(text, "diplomatic")
+        assert result == "diplomatic"
+
+    def test_requires_two_indicators(self) -> None:
+        """Single indicator is not enough to override."""
+        text = "New tariff announced on Chinese goods"
+        result = validate_category(text, "technology")
+        assert result == "technology"
+
+    def test_trade_override_with_chinese_text(self) -> None:
+        text = "关税进口贸易争端 technology chip semiconductor"
+        result = validate_category(text, "technology")
+        assert result == "trade"
+
+    def test_diplomatic_does_not_override_trade(self) -> None:
+        """Diplomatic indicators should not override trade category."""
+        text = "Ambassador discusses trade tariffs at embassy"
+        result = validate_category(text, "trade")
+        assert result == "trade"
+
+    def test_military_does_not_override_diplomatic(self) -> None:
+        """Military indicators should not override diplomatic category."""
+        text = "Navy deployed near embassy area, missile concerns"
+        result = validate_category(text, "diplomatic")
+        assert result == "diplomatic"
+
+    def test_xie_feng_diplomatic_override(self) -> None:
+        """The Xie Feng signal should be overridden from technology to diplomatic."""
+        text = (
+            "Xie Feng states that there are differences and contradictions "
+            "between China and the US; the key is to respect each other's core "
+            "interests and major concerns. Ambassador diplomatic foreign ministry"
+        )
+        result = validate_category(text, "technology")
+        assert result == "diplomatic"
