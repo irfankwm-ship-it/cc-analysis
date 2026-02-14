@@ -65,6 +65,10 @@ _PROMPT_ARTIFACT_PATTERNS = [
     # RULES block leaked into output
     r"\n*RULES:[\s\S]*$",
     r"\n*规则[：:][\s\S]*$",
+    # LLM self-commentary / meta-analysis leaked into output
+    r"\n*(?:Please note|Note that|I referenced|Two perspectives are evident|以上两个视角)[\s\S]*$",
+    r"\n*请注意[，,][\s\S]*$",
+    r"\n*两个视角在[\s\S]*$",
 ]
 
 
@@ -244,9 +248,10 @@ def llm_generate_perspectives(
             f"严格要求：\n"
             f"- 每个视角写2-3句话，必须引用新闻中的具体事实\n"
             f"- {zh_canada_hint}\n"
-            f"- 北京视角：用中国官方立场分析此事，引用新闻中的具体内容\n"
+            f"- 北京视角：用中国官方立场分析。涉及台湾时，坚持一个中国原则，反对任何外国干涉和军售；涉及批评时，驳斥为'干涉内政'；引用新闻中的具体内容\n"
             f"- 两个视角的语气和立场必须明显不同\n"
             f"- 不要重复新闻标题或原文，要写分析性内容\n"
+            f"- 不要添加'请注意'或自我评论的文字\n"
             f"- 直接写视角内容，不要加'视角：'等前缀标签\n\n"
             f"新闻类别：{category}\n"
             f"新闻来源：{source_context}\n"
@@ -264,9 +269,10 @@ def llm_generate_perspectives(
             f"STRICT RULES:\n"
             f"- Each perspective: 2-3 sentences referencing SPECIFIC facts from the article\n"
             f"- {en_canada_hint}\n"
-            f"- BEIJING perspective: Analyze from China's official stance, referencing specific content from the article\n"
+            f"- BEIJING perspective: Write as China's state media would. On Taiwan: firmly uphold One-China principle, oppose foreign interference and arms sales. On criticism: dismiss as 'interference in internal affairs.' Reference specific article content\n"
             f"- Do NOT restate the article — write analytical commentary\n"
             f"- Do NOT include labels like 'Perspective:' — just write the content directly\n"
+            f"- Do NOT add meta-commentary like 'Please note' or 'Two perspectives are evident'\n"
             f"- The two perspectives MUST sound distinctly different\n\n"
             f"Article category: {category}\n"
             f"Article source: {source_context}\n"

@@ -521,34 +521,44 @@ def translate_signals_batch(
         logger.info("Final cleanup fixed %d Chinese text fields", cleaned_count)
 
     # --- Post-translation validation: strip leftover fragments ---
+    # Covers title, body, AND perspective fields
     en_cleaned_count = 0
     zh_fallback_count = 0
+
+    def _clean_bilingual_field(field: dict[str, str]) -> None:
+        """Strip CJK from EN text; fallback ZH to EN if empty."""
+        nonlocal en_cleaned_count, zh_fallback_count
+        en_text = field.get("en", "")
+        zh_text = field.get("zh", "")
+        if en_text:
+            stripped = re.sub(r'[\u4e00-\u9fff]+', '', en_text).strip()
+            stripped = re.sub(r'\s{2,}', ' ', stripped)
+            if stripped and stripped != en_text:
+                field["en"] = stripped
+                en_cleaned_count += 1
+        if zh_text:
+            cjk_count = sum(1 for c in zh_text if '\u4e00' <= c <= '\u9fff')
+            if cjk_count == 0:
+                en_fallback = field.get("en", "")
+                if en_fallback:
+                    field["zh"] = en_fallback
+                    zh_fallback_count += 1
+        elif not zh_text and field.get("en"):
+            field["zh"] = field["en"]
+            zh_fallback_count += 1
+
     for s in signals:
         for key in ("title", "body"):
             field = s.get(key)
-            if not isinstance(field, dict):
-                continue
-            en_text = field.get("en", "")
-            zh_text = field.get("zh", "")
-            # Strip CJK characters from EN text
-            if en_text:
-                stripped = re.sub(r'[\u4e00-\u9fff]+', '', en_text).strip()
-                stripped = re.sub(r'\s{2,}', ' ', stripped)
-                if stripped and stripped != en_text:
-                    field["en"] = stripped
-                    en_cleaned_count += 1
-            # If ZH is empty or entirely English, copy EN as fallback
-            if zh_text:
-                cjk_count = sum(1 for c in zh_text if '\u4e00' <= c <= '\u9fff')
-                if cjk_count == 0:
-                    # ZH field has no Chinese characters — use EN as fallback
-                    en_fallback = field.get("en", "")
-                    if en_fallback:
-                        field["zh"] = en_fallback
-                        zh_fallback_count += 1
-            elif not zh_text and field.get("en"):
-                field["zh"] = field["en"]
-                zh_fallback_count += 1
+            if isinstance(field, dict):
+                _clean_bilingual_field(field)
+        # Also clean perspective fields
+        persp = s.get("perspectives", {})
+        for view in ("canada", "china"):
+            view_dict = persp.get(view)
+            if isinstance(view_dict, dict):
+                _clean_bilingual_field(view_dict)
+
     if en_cleaned_count > 0:
         logger.info("Stripped CJK fragments from %d EN text fields", en_cleaned_count)
     if zh_fallback_count > 0:
