@@ -57,7 +57,60 @@ _BOILERPLATE_PATTERNS = [
     r"click here to",
     r"read more:",
     r"related (?:articles?|stories?|news):",
+    # News site membership/promotion boilerplate
+    r"become a member",
+    r"support (?:our |independent )?journalism",
+    r"(?:free|premium) membership",
+    r"(?:monthly|annual) subscription",
+    r"donate (?:now|today)",
+    r"join (?:our )?community",
+    r"(?:hkfp|scmp|rthk|cna) (?:keychain|tote|bag|merchandise)",
+    r"support hkfp",
+    r"fact[- ]check(?:ed)? by",
+    # Reporter credits and photo captions
+    r"^\s*[（(](?:记者|記者|摄|攝)[^）)]*[）)]",
+    r"^\s*〔(?:记者|記者)[^〕]*〕",
+    r"^\s*(?:photo|image|图片)\s*(?:credit|courtesy|by)\s*:",
+    # Navigation and social elements
+    r"(?:previous|next) (?:article|story|post)",
+    r"(?:trending|popular|most read) (?:stories|articles|news)",
+    r"(?:share|tweet|post) (?:on|to) (?:facebook|twitter|x|whatsapp|linkedin)",
+    r"(?:print|email) this (?:article|story)",
+    # Chinese news site boilerplate
+    r"(?:来源|來源)\s*[：:]\s*\S+",
+    r"(?:编辑|編輯|责编|責編)\s*[：:]\s*\S+",
+    r"(?:原标题|原標題)\s*[：:]",
+    r"(?:转载|轉載)请注明",
 ]
+
+
+def clean_body_text(
+    text: str,
+    boilerplate_patterns: list[str] | None = None,
+) -> str:
+    """Remove boilerplate and junk from article body text.
+
+    Strips lines matching boilerplate patterns, reporter credits,
+    and other non-content text. Applied before body is passed
+    to the LLM for perspective generation.
+    """
+    if not text:
+        return text
+    patterns = boilerplate_patterns if boilerplate_patterns is not None else _BOILERPLATE_PATTERNS
+    lines = text.split("\n")
+    clean_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        is_boilerplate = False
+        for pattern in patterns:
+            if re.search(pattern, stripped, re.IGNORECASE):
+                is_boilerplate = True
+                break
+        if not is_boilerplate:
+            clean_lines.append(stripped)
+    return "\n".join(clean_lines)
 
 
 def split_sentences(text: str, min_len: int = 15) -> list[str]:

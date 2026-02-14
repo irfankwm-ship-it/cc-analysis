@@ -28,17 +28,43 @@ _TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "120"))  # Configurable via env 
 
 
 _PROMPT_ARTIFACT_PATTERNS = [
-    # Parenthetical role instructions (EN) — case insensitive
+    # Bare label prefixes: "Perspective:" / "View:"
+    r"^\s*(?:Perspective|View)\s*:\s*\n?",
+    # Chinese bare label: "视角："
+    r"^\s*视角\s*[：:]\s*\n?",
+    # Structural markers leaked: "Ottawa:" / "Beijing:" / "OTTAWA:" / "BEIJING:"
+    r"^\s*(?:Ottawa|OTTAWA|Beijing|BEIJING)\s*:\s*\n?",
+    r"^\s*(?:渥太华|北京)\s*[：:]\s*\n?",
+    # Parenthetical role instructions (EN)
     r"^\s*\((?:pragmatic|sovereignty|practical|prioritizing)[\w\s,\-\u2014\u2013\u00b7]*?\)\s*:?\s*",
     r"^\s*\((?:PRAGMATIC|SOVEREIGNTY|PRACTICAL|PRIORITIZING)[\w\s,\-\u2014\u2013\u00b7]*?\)\s*:?\s*",
     # Parenthetical role instructions (ZH)
-    r"^\s*[\uff08(](?:\u52a1\u5b9e|\u4e3b\u6743|\u5b9e\u9645)[\u4e00-\u9fff\w\s,\u3001\uff0c\u00b7\u2014\u2013]*?[\uff09)]\s*[:：]?\s*",
+    r"^\s*[\uff08(](?:务实|主权|实际)[\u4e00-\u9fff\w\s,\u3001\uff0c\u00b7\u2014\u2013]*?[\uff09)]\s*[:：]?\s*",
+    # Instruction text leaked without parens (EN) — various forms
+    r"^\s*(?:Pragmatic|Prudent|Practical)[,\s]+(?:Canadian interests|pragmatic|focused on|sovereignty)[^:：\n]*[:：]\s*\n?",
+    # Instruction text leaked without parens (ZH) — various forms
+    r"^\s*务实[、，,\s]*(?:加拿大利益优先|专注于|聚焦)[^:：\n]*[:：]\s*\n?",
+    # Beijing instruction patterns leaked (EN)
+    r"^\s*(?:Sovereignty[- ]?[Ff]irst|Priority of sovereignty|Strong sense of sovereignty)[^:：\n]*[:：]\s*\n?",
+    # Beijing instruction patterns leaked (ZH)
+    r"^\s*(?:主权优先|主权观念强烈)[^:：\n]*[:：]\s*\n?",
+    # Standalone instruction description (EN)
+    r"^-?\s*(?:Prudent and pragmatic in political stance|Political stance is prudent)[^\n]*\n?",
+    # Standalone instruction description (ZH)
+    r"^-?\s*政治立场稳健务实[^\n]*\n?",
+    # Beijing standalone instruction description (EN)
+    r"^-?\s*(?:Strong sense of sovereignty|Sovereignty[- ]focused)[,\s]+(?:emphasiz|using official|state.?media)[^\n]*\n?",
+    # Beijing standalone instruction description (ZH)
+    r"^-?\s*主权观念强烈[^\n]*\n?",
+    # Leaked prompt structure: "Category:", "Source:", "Title:", "Summary:"
+    r"\n*(?:Category|Source|Title|Summary|Headline)\s*:.*$",
+    r"\n*(?:类别|来源|标题|摘要)\s*[：:].*$",
     # Question-form prompts that leaked
     r"^\s*(?:What specific impacts|How (?:does|will) (?:the )?official|How does this affect)\b[^.?]*\?\s*",
-    r"^\s*(?:\u8fd9\u5bf9\u52a0\u62ff\u5927|\u5b98\u65b9\u5317\u4eac\u5982\u4f55|\u5177\u4f53\u6709\u4ec0\u4e48\u5f71\u54cd)[^\u3002\uff1f]*[\uff1f?]\s*",
+    r"^\s*(?:这对加拿大|官方北京如何|具体有什么影响)[^\u3002\uff1f]*[\uff1f?]\s*",
     # RULES block leaked into output
     r"\n*RULES:[\s\S]*$",
-    r"\n*\u89c4\u5219[\uff1a:][\s\S]*$",
+    r"\n*规则[：:][\s\S]*$",
 ]
 
 
@@ -170,6 +196,7 @@ def llm_generate_perspectives(
     category: str,
     is_chinese_source: bool,
     lang: str = "en",
+    has_canada_nexus: bool = True,
 ) -> dict[str, Any] | None:
     """Generate signal-specific dual perspectives via LLM in a single language.
 
@@ -193,21 +220,38 @@ def llm_generate_perspectives(
 
     body_truncated = body[:1000] if len(body) > 1000 else body
 
+    # Build Canada-relevance hint for the prompt
+    if has_canada_nexus:
+        en_canada_hint = "OTTAWA perspective: Analyze the direct impact on Canadian interests, referencing specific facts"
+        zh_canada_hint = "渥太华视角：分析此事对加拿大利益的直接影响，引用新闻中的具体事实"
+    else:
+        en_canada_hint = (
+            "OTTAWA perspective: Canada is NOT directly involved in this story. "
+            "Write about what Canadian policymakers or businesses should monitor, "
+            "or the broader international implications. Do NOT fabricate Canadian "
+            "government statements, actions, or involvement"
+        )
+        zh_canada_hint = (
+            "渥太华视角：此事与加拿大没有直接关系。"
+            "请分析加拿大决策者或企业应关注的间接影响，或更广泛的国际影响。"
+            "不要编造加拿大政府的声明、行动或参与"
+        )
+
     if lang == "zh":
         source_context = "中方媒体" if is_chinese_source else "西方媒体"
         prompt = (
-            f"分析以下中加关系信号，写出两个截然不同的视角。\n\n"
-            f"要求：\n"
-            f"- 渥太华视角：务实、加拿大利益优先、关注价值观\n"
-            f"- 北京视角：主权优先、官方定调、官媒口吻\n"
-            f"- 每个视角写2-3句话，引用标题中的具体事实\n"
+            f"根据以下新闻，写出渥太华和北京两个不同的分析视角。\n\n"
+            f"严格要求：\n"
+            f"- 每个视角写2-3句话，必须引用新闻中的具体事实\n"
+            f"- {zh_canada_hint}\n"
+            f"- 北京视角：用中国官方立场分析此事，引用新闻中的具体内容\n"
             f"- 两个视角的语气和立场必须明显不同\n"
-            f"- 不要使用适用于任何新闻的泛泛之词\n"
-            f"- 仅输出两个视角内容，不要添加其他文字\n\n"
-            f"类别：{category}\n"
-            f"来源：{source_context}\n"
-            f"标题：{title}\n"
-            f"摘要：{body_truncated}\n\n"
+            f"- 不要重复新闻标题或原文，要写分析性内容\n"
+            f"- 直接写视角内容，不要加'视角：'等前缀标签\n\n"
+            f"新闻类别：{category}\n"
+            f"新闻来源：{source_context}\n"
+            f"新闻标题：{title}\n"
+            f"新闻摘要：{body_truncated}\n\n"
             f"渥太华：\n\n"
             f"北京：\n"
         )
@@ -216,17 +260,18 @@ def llm_generate_perspectives(
     else:
         source_context = "Chinese media" if is_chinese_source else "Western media"
         prompt = (
-            f"Analyze this Canada-China signal and write TWO DISTINCT perspectives.\n\n"
-            f"Instructions:\n"
-            f"- Write the OTTAWA perspective as pragmatic, focused on Canadian interests, values-aware\n"
-            f"- Write the BEIJING perspective as sovereignty-focused, using official framing, state-media tone\n"
-            f"- Each perspective: 2-3 sentences referencing specific facts from the headline\n"
-            f"- The two perspectives MUST sound different\n"
-            f"- Do NOT use generic phrases. Write ONLY the perspectives.\n\n"
-            f"Category: {category}\n"
-            f"Source: {source_context}\n"
-            f"Headline: {title}\n"
-            f"Summary: {body_truncated}\n\n"
+            f"Write TWO DISTINCT analytical perspectives on this news story.\n\n"
+            f"STRICT RULES:\n"
+            f"- Each perspective: 2-3 sentences referencing SPECIFIC facts from the article\n"
+            f"- {en_canada_hint}\n"
+            f"- BEIJING perspective: Analyze from China's official stance, referencing specific content from the article\n"
+            f"- Do NOT restate the article — write analytical commentary\n"
+            f"- Do NOT include labels like 'Perspective:' — just write the content directly\n"
+            f"- The two perspectives MUST sound distinctly different\n\n"
+            f"Article category: {category}\n"
+            f"Article source: {source_context}\n"
+            f"Article headline: {title}\n"
+            f"Article summary: {body_truncated}\n\n"
             f"OTTAWA:\n\n"
             f"BEIJING:\n"
         )

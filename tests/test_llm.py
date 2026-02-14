@@ -269,6 +269,51 @@ class TestStripPromptArtifacts:
         result = _strip_prompt_artifacts(text)
         assert result == "中方对此表示反对。"
 
+    def test_strips_perspective_label_en(self) -> None:
+        text = "Perspective: Canada will benefit from this transaction by promoting cooperation."
+        result = _strip_prompt_artifacts(text)
+        assert result == "Canada will benefit from this transaction by promoting cooperation."
+
+    def test_strips_perspective_label_en_newline(self) -> None:
+        text = "Perspective:\nCanada has traditionally been pragmatic in its approach."
+        result = _strip_prompt_artifacts(text)
+        assert result == "Canada has traditionally been pragmatic in its approach."
+
+    def test_strips_perspective_label_zh(self) -> None:
+        text = "视角：加拿大将从这种交易中受益。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "加拿大将从这种交易中受益。"
+
+    def test_strips_perspective_label_zh_newline(self) -> None:
+        text = "视角：\n加拿大在国际事务中一向秉持务实的态度。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "加拿大在国际事务中一向秉持务实的态度。"
+
+    def test_strips_instruction_text_en(self) -> None:
+        text = "Pragmatic, Canadian interests first, values focus:\n- The operation of the company is key."
+        result = _strip_prompt_artifacts(text)
+        assert result == "- The operation of the company is key."
+
+    def test_strips_instruction_text_zh(self) -> None:
+        text = "务实、加拿大利益优先、关注价值观：\n这起事件反映了教育体系中的问题。"
+        result = _strip_prompt_artifacts(text)
+        assert result == "这起事件反映了教育体系中的问题。"
+
+    def test_strips_instruction_description_en(self) -> None:
+        text = "Prudent and pragmatic in political stance, focused on actual operations in national interests."
+        result = _strip_prompt_artifacts(text)
+        assert result == ""
+
+    def test_strips_instruction_description_zh(self) -> None:
+        text = "- 政治立场稳健务实，专注于国家利益和国际事务中的实际操作。"
+        result = _strip_prompt_artifacts(text)
+        assert result == ""
+
+    def test_strips_combined_perspective_plus_instruction(self) -> None:
+        text = "Perspective: Pragmatic, Canadian interests first, values focus:\n- The semiconductor supply chain is critical."
+        result = _strip_prompt_artifacts(text)
+        assert result == "- The semiconductor supply chain is critical."
+
     def test_leaves_clean_text_unchanged(self) -> None:
         text = "Ottawa is closely monitoring the trade dispute and considering diplomatic options."
         result = _strip_prompt_artifacts(text)

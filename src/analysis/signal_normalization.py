@@ -11,16 +11,45 @@ import logging
 import re
 from typing import Any
 
+from opencc import OpenCC
+
 from analysis.llm import llm_generate_perspectives, llm_summarize
 from analysis.source_detection import is_chinese_source, translate_source_name
-from analysis.text_processing import summarize_body
+from analysis.text_processing import clean_body_text, summarize_body
 from analysis.translate import (
     _clean_partial_translation,
     translate_to_chinese,
     translate_to_english,
 )
 
+# Traditional → Simplified Chinese converter (singleton)
+_T2S = OpenCC("t2s")
+
 logger = logging.getLogger("analysis")
+
+# Keywords indicating a signal has direct Canada relevance
+_CANADA_NEXUS_KEYWORDS = [
+    # EN
+    "canada", "canadian", "ottawa", "trudeau", "carney", "poilievre",
+    "joly", "champagne", "freeland", "csis", "rcmp", "norad",
+    "canola", "lobster", "potash", "five eyes", "canada-china",
+    "british columbia", "alberta", "ontario", "quebec", "toronto",
+    "vancouver", "montreal",
+    # ZH
+    "加拿大", "渥太华", "特鲁多", "加中", "卡尼", "油菜籽",
+]
+
+
+def has_canada_nexus(title: str, body: str) -> bool:
+    """Check whether a signal has direct Canada relevance.
+
+    Returns True if any Canada-related keyword appears in the title or body.
+    Used to decide whether to generate a Canada-specific perspective
+    or a general international-observer perspective.
+    """
+    combined = (title + " " + body).lower()
+    return any(kw in combined for kw in _CANADA_NEXUS_KEYWORDS)
+
 
 # Default templates loaded from config; module-level fallbacks for backward compat
 _IMPACT_TEMPLATES: dict[str, dict[str, str]] = {}
@@ -125,6 +154,9 @@ def generate_perspectives(
         else {"en": "Western media", "zh": "西方媒体"}
     )
 
+    # Check Canada relevance to guide perspective generation
+    canada_relevant = has_canada_nexus(title, body_text)
+
     # Try LLM-powered perspectives first (single-language output)
     if title and body_text:
         llm_result = llm_generate_perspectives(
@@ -133,24 +165,27 @@ def generate_perspectives(
             category=category,
             is_chinese_source=is_chinese,
             lang=lang,
+            has_canada_nexus=canada_relevant,
         )
         if llm_result:
-            canada_text = llm_result["canada"]
-            china_text = llm_result["china"]
-            if lang == "zh":
-                return {
-                    "primary_source": primary,
-                    "canada": {"en": "", "zh": canada_text},
-                    "china": {"en": "", "zh": china_text},
-                    "llm_generated": True,
-                }
-            else:
-                return {
-                    "primary_source": primary,
-                    "canada": {"en": canada_text, "zh": ""},
-                    "china": {"en": china_text, "zh": ""},
-                    "llm_generated": True,
-                }
+            canada_text = _validate_perspective(llm_result["canada"], body_text, lang)
+            china_text = _validate_perspective(llm_result["china"], body_text, lang)
+            if canada_text and china_text:
+                if lang == "zh":
+                    return {
+                        "primary_source": primary,
+                        "canada": {"en": "", "zh": canada_text},
+                        "china": {"en": "", "zh": china_text},
+                        "llm_generated": True,
+                    }
+                else:
+                    return {
+                        "primary_source": primary,
+                        "canada": {"en": canada_text, "zh": ""},
+                        "china": {"en": china_text, "zh": ""},
+                        "llm_generated": True,
+                    }
+            logger.debug("LLM perspectives failed validation, falling back to template")
 
     # Quote indicators
     en_quote_indicators = [
@@ -187,6 +222,79 @@ def generate_perspectives(
         result["china"] = china_template
 
     return result
+
+
+def _validate_perspective(text: str, body_text: str, lang: str) -> str | None:
+    """Validate a perspective string and return None if it's bad.
+
+    Catches:
+    - Empty or too short
+    - Article body restatement (>60% word overlap)
+    - Language mismatch (CJK in EN field, mostly Latin in ZH field)
+    - Scraped content contamination (ads, membership, navigation)
+    - Structural markers leaked from prompt
+    """
+    if not text or not text.strip():
+        return None
+
+    text = text.strip()
+
+    # Too short
+    min_len = 15 if lang == "zh" else 30
+    if len(text) < min_len:
+        return None
+
+    # Scraped content contamination markers
+    contamination_markers = [
+        "keychain", "shopping bag", "membership", "subscribe",
+        "newsletter sign", "HKFP", "follow us", "click here",
+        "share this", "read more", "related articles",
+        "购物袋", "订阅", "会员", "关注我们",
+    ]
+    text_lower = text.lower()
+    if any(marker.lower() in text_lower for marker in contamination_markers):
+        logger.debug("Perspective rejected: scraped content contamination")
+        return None
+
+    # Structural markers that shouldn't appear in perspective content
+    structural_markers = [
+        "OTTAWA:", "BEIJING:", "渥太华：", "北京：",
+        "Category:", "Source:", "Title:", "Summary:",
+        "类别：", "来源：", "标题：", "摘要：",
+    ]
+    if any(marker in text for marker in structural_markers):
+        logger.debug("Perspective rejected: structural markers found")
+        return None
+
+    # Language mismatch: EN field should not be mostly CJK
+    if lang == "en":
+        cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        total = sum(1 for c in text if not c.isspace())
+        if total > 0 and cjk_count / total > 0.3:
+            logger.debug("Perspective rejected: CJK in EN field")
+            return None
+
+    # Language mismatch: ZH field should have some CJK
+    if lang == "zh":
+        cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        if cjk_count < 5:
+            logger.debug("Perspective rejected: no CJK in ZH field")
+            return None
+
+    # Article body restatement detection (high word overlap)
+    if body_text and len(body_text) > 50:
+        body_lower = body_text[:500].lower()
+        # Simple overlap check: count how many 4+ char words from perspective
+        # appear verbatim in body
+        persp_words = set(re.findall(r'\b\w{4,}\b', text_lower))
+        body_words = set(re.findall(r'\b\w{4,}\b', body_lower))
+        if persp_words and len(persp_words) > 3:
+            overlap = len(persp_words & body_words) / len(persp_words)
+            if overlap > 0.8:
+                logger.debug("Perspective rejected: body restatement (%.0f%% overlap)", overlap * 100)
+                return None
+
+    return text
 
 
 def has_english_fragments(text: str, threshold: float = 0.15) -> bool:
@@ -313,6 +421,8 @@ def normalize_signal(
 
     # --- Perspectives (generated in source language) ---
     body_for_perspectives = raw_body if raw_body and not isinstance(raw_body, dict) else ""
+    if body_for_perspectives:
+        body_for_perspectives = clean_body_text(body_for_perspectives)
     source_name_str = signal.get("source", "")
     if isinstance(source_name_str, dict):
         source_name_str = source_name_str.get("en", "") or source_name_str.get("zh", "")
@@ -409,6 +519,61 @@ def translate_signals_batch(
                     cleaned_count += 1
     if cleaned_count > 0:
         logger.info("Final cleanup fixed %d Chinese text fields", cleaned_count)
+
+    # --- Post-translation validation: strip leftover fragments ---
+    en_cleaned_count = 0
+    zh_fallback_count = 0
+    for s in signals:
+        for key in ("title", "body"):
+            field = s.get(key)
+            if not isinstance(field, dict):
+                continue
+            en_text = field.get("en", "")
+            zh_text = field.get("zh", "")
+            # Strip CJK characters from EN text
+            if en_text:
+                stripped = re.sub(r'[\u4e00-\u9fff]+', '', en_text).strip()
+                stripped = re.sub(r'\s{2,}', ' ', stripped)
+                if stripped and stripped != en_text:
+                    field["en"] = stripped
+                    en_cleaned_count += 1
+            # If ZH is empty or entirely English, copy EN as fallback
+            if zh_text:
+                cjk_count = sum(1 for c in zh_text if '\u4e00' <= c <= '\u9fff')
+                if cjk_count == 0:
+                    # ZH field has no Chinese characters — use EN as fallback
+                    en_fallback = field.get("en", "")
+                    if en_fallback:
+                        field["zh"] = en_fallback
+                        zh_fallback_count += 1
+            elif not zh_text and field.get("en"):
+                field["zh"] = field["en"]
+                zh_fallback_count += 1
+    if en_cleaned_count > 0:
+        logger.info("Stripped CJK fragments from %d EN text fields", en_cleaned_count)
+    if zh_fallback_count > 0:
+        logger.info("Applied EN fallback to %d empty/English-only ZH fields", zh_fallback_count)
+
+    # --- Traditional → Simplified Chinese conversion ---
+    t2s_count = 0
+    for s in signals:
+        for key in ("title", "body"):
+            field = s.get(key)
+            if isinstance(field, dict) and field.get("zh"):
+                converted = _T2S.convert(field["zh"])
+                if converted != field["zh"]:
+                    field["zh"] = converted
+                    t2s_count += 1
+        persp = s.get("perspectives", {})
+        for view in ("canada", "china"):
+            view_dict = persp.get(view)
+            if isinstance(view_dict, dict) and view_dict.get("zh"):
+                converted = _T2S.convert(view_dict["zh"])
+                if converted != view_dict["zh"]:
+                    view_dict["zh"] = converted
+                    t2s_count += 1
+    if t2s_count > 0:
+        logger.info("Converted %d Traditional→Simplified Chinese fields", t2s_count)
 
     return signals
 

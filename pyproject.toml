@@ -16,6 +16,7 @@ pyyaml = "^6.0"
 click = "^8.1"
 jsonschema = "^4.20"
 requests = "^2.31"
+opencc-python-reimplemented = "^0.1.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
