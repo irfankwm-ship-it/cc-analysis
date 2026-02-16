@@ -83,10 +83,83 @@ def _strip_prompt_artifacts(text: str) -> str:
     return text
 
 
+def _validate_llm_output(text: str) -> bool:
+    """Check whether LLM output is well-formed (not garbled).
+
+    Detects common 3B-quantized model failure modes:
+    - Mixed CJK-Latin fragments without spaces (e.g. "陈步adro")
+    - Missing spaces between Latin words (e.g. "toadjust thepolicy")
+    - Isolated single Latin characters surrounded by CJK
+
+    Returns True if text looks valid, False if garbled.
+    """
+    if not text or len(text) < 10:
+        return True  # too short to judge
+
+    # Pattern 1: CJK character directly adjacent to Latin letter fragment (2-5 chars)
+    # e.g. "陈步adro" or "政策adj" — but allow known patterns like "5G" or "AI"
+    garbled_fragments = re.findall(
+        r'[\u4e00-\u9fff][a-zA-Z]{2,5}(?![a-zA-Z])|(?<![a-zA-Z])[a-zA-Z]{2,5}[\u4e00-\u9fff]',
+        text,
+    )
+    if len(garbled_fragments) >= 3:
+        logger.debug("LLM output rejected: %d CJK-Latin fragments", len(garbled_fragments))
+        return False
+
+    # Pattern 2: Missing spaces — sequences of 3+ lowercase words jammed together
+    # e.g. "toadjust thepolicy forthe" (but not CamelCase or URLs)
+    no_space_runs = re.findall(r'[a-z]{3,}[A-Z][a-z]{2,}[a-z]{3,}', text)
+    missing_space_words = re.findall(r'\b[a-z]{2,}[a-z][a-z]{2,}\b', text)
+    # Count words that look like two words jammed: check if splitting them yields
+    # common short words at boundaries
+    jammed_count = 0
+    for match in re.finditer(r'\b([a-z]{6,20})\b', text):
+        word = match.group(1)
+        # Check if this long "word" contains a common English word boundary
+        for split_at in range(2, len(word) - 2):
+            left, right = word[:split_at], word[split_at:]
+            if (left in _COMMON_SHORT_WORDS and len(right) >= 3 and
+                    right[:3] in _COMMON_PREFIXES):
+                jammed_count += 1
+                break
+    if jammed_count >= 4:
+        logger.debug("LLM output rejected: %d jammed words detected", jammed_count)
+        return False
+
+    # Pattern 3: Isolated single Latin chars between CJK (not digits, not "a"/"I")
+    # e.g. "中国 x 政策 b 发展" — random single letters
+    isolated = re.findall(r'[\u4e00-\u9fff]\s*[b-hj-zB-HJ-Z]\s*[\u4e00-\u9fff]', text)
+    if len(isolated) >= 3:
+        logger.debug("LLM output rejected: %d isolated Latin chars in CJK", len(isolated))
+        return False
+
+    return True
+
+
+# Short common English words used to detect jammed-together words
+_COMMON_SHORT_WORDS = frozenset({
+    "the", "to", "of", "in", "for", "on", "is", "at", "by", "an",
+    "as", "it", "or", "be", "no", "so", "if", "do", "up", "we",
+    "he", "she", "his", "her", "its", "our", "can", "has", "had",
+    "was", "are", "but", "not", "all", "may", "new", "one", "two",
+    "with", "that", "this", "from", "will", "have", "been", "more",
+    "also", "than", "over", "into", "said", "each",
+})
+
+# Common 3-letter prefixes of English words (for right-side validation)
+_COMMON_PREFIXES = frozenset({
+    "the", "pol", "adj", "cha", "imp", "inc", "dec", "pro", "pre",
+    "con", "com", "int", "tra", "str", "sta", "res", "rep", "rel",
+    "eco", "sec", "mil", "dip", "tar", "san", "exp", "gov", "for",
+    "mar", "fin", "bus", "agr", "bil", "mul", "nat", "reg", "sig",
+})
+
+
 def _call_ollama(prompt: str) -> str | None:
     """Send a prompt to the ollama API and return the response text.
 
-    Returns None on any failure (network, timeout, parse error).
+    Returns None on any failure (network, timeout, parse error) or if
+    the output is detected as garbled.
     """
     url = f"{_OLLAMA_URL}/api/generate"
     headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -111,6 +184,9 @@ def _call_ollama(prompt: str) -> str | None:
         data = resp.json()
         response_text = data.get("response", "").strip()
         if response_text:
+            if not _validate_llm_output(response_text):
+                logger.warning("Garbled LLM output rejected: %.80s...", response_text)
+                return None
             return response_text
         return None
     except Exception as exc:
@@ -201,10 +277,11 @@ def llm_generate_perspectives(
     is_chinese_source: bool,
     lang: str = "en",
     has_canada_nexus: bool = True,
+    perspective_mode: str = "both",
 ) -> dict[str, Any] | None:
-    """Generate signal-specific dual perspectives via LLM in a single language.
+    """Generate signal-specific perspectives via LLM in a single language.
 
-    Generates Canadian and Beijing viewpoints in the source language using
+    Generates Canadian and/or Beijing viewpoints in the source language using
     plain-text output (no JSON).  The caller is responsible for translating
     to the other language afterwards.
 
@@ -214,9 +291,11 @@ def llm_generate_perspectives(
         category: Signal category (diplomatic, trade, etc.).
         is_chinese_source: Whether the signal originated from a Chinese source.
         lang: Output language — ``"en"`` or ``"zh"``.
+        has_canada_nexus: Whether the signal is directly relevant to Canada.
+        perspective_mode: ``"both"``, ``"beijing_only"``, or ``"ottawa_only"``.
 
     Returns:
-        Dict with ``canada`` and ``china`` keys (plain strings in *lang*),
+        Dict with ``canada`` and/or ``china`` keys (plain strings in *lang*),
         or None on failure.
     """
     if not title or not body:
@@ -241,6 +320,109 @@ def llm_generate_perspectives(
             "不要编造加拿大政府的声明、行动或参与"
         )
 
+    if perspective_mode == "beijing_only":
+        # Single-perspective: Beijing only
+        if lang == "zh":
+            source_context = "中方媒体" if is_chinese_source else "西方媒体"
+            prompt = (
+                f"根据以下新闻，写出北京的分析视角。\n\n"
+                f"严格要求：\n"
+                f"- 写2-3句话，必须引用新闻中的具体事实\n"
+                f"- 用中国官方立场分析。涉及台湾时，坚持一个中国原则，反对任何外国干涉和军售；涉及批评时，驳斥为'干涉内政'；引用新闻中的具体内容\n"
+                f"- 不要重复新闻标题或原文，要写分析性内容\n"
+                f"- 不要添加'请注意'或自我评论的文字\n"
+                f"- 直接写视角内容，不要加'视角：'等前缀标签\n\n"
+                f"新闻类别：{category}\n"
+                f"新闻来源：{source_context}\n"
+                f"新闻标题：{title}\n"
+                f"新闻摘要：{body_truncated}\n\n"
+                f"北京：\n"
+            )
+        else:
+            source_context = "Chinese media" if is_chinese_source else "Western media"
+            prompt = (
+                f"Write a BEIJING analytical perspective on this news story.\n\n"
+                f"STRICT RULES:\n"
+                f"- 2-3 sentences referencing SPECIFIC facts from the article\n"
+                f"- Write as China's state media would. On Taiwan: firmly uphold One-China principle, oppose foreign interference and arms sales. On criticism: dismiss as 'interference in internal affairs.' Reference specific article content\n"
+                f"- Do NOT restate the article — write analytical commentary\n"
+                f"- Do NOT include labels like 'Perspective:' — just write the content directly\n"
+                f"- Do NOT add meta-commentary\n\n"
+                f"Article category: {category}\n"
+                f"Article source: {source_context}\n"
+                f"Article headline: {title}\n"
+                f"Article summary: {body_truncated}\n\n"
+                f"BEIJING:\n"
+            )
+
+        result = _call_ollama(prompt)
+        if not result:
+            return None
+
+        # Parse single-perspective output
+        china_text = _strip_prompt_artifacts(result.strip())
+        # Remove leading "BEIJING:" / "北京：" marker if present
+        for prefix in ("beijing:", "beijing：", "北京:", "北京："):
+            if china_text.lower().startswith(prefix):
+                china_text = china_text[len(prefix):].strip()
+                break
+
+        min_len = 10 if lang == "zh" else 20
+        if len(china_text) < min_len:
+            return None
+        return {"canada": "", "china": china_text, "lang": lang}
+
+    elif perspective_mode == "ottawa_only":
+        # Single-perspective: Ottawa only
+        if lang == "zh":
+            source_context = "中方媒体" if is_chinese_source else "西方媒体"
+            prompt = (
+                f"根据以下新闻，写出渥太华的分析视角。\n\n"
+                f"严格要求：\n"
+                f"- 写2-3句话，必须引用新闻中的具体事实\n"
+                f"- {zh_canada_hint}\n"
+                f"- 不要重复新闻标题或原文，要写分析性内容\n"
+                f"- 不要添加'请注意'或自我评论的文字\n"
+                f"- 直接写视角内容，不要加'视角：'等前缀标签\n\n"
+                f"新闻类别：{category}\n"
+                f"新闻来源：{source_context}\n"
+                f"新闻标题：{title}\n"
+                f"新闻摘要：{body_truncated}\n\n"
+                f"渥太华：\n"
+            )
+        else:
+            source_context = "Chinese media" if is_chinese_source else "Western media"
+            prompt = (
+                f"Write an OTTAWA analytical perspective on this news story.\n\n"
+                f"STRICT RULES:\n"
+                f"- 2-3 sentences referencing SPECIFIC facts from the article\n"
+                f"- {en_canada_hint}\n"
+                f"- Do NOT restate the article — write analytical commentary\n"
+                f"- Do NOT include labels like 'Perspective:' — just write the content directly\n"
+                f"- Do NOT add meta-commentary\n\n"
+                f"Article category: {category}\n"
+                f"Article source: {source_context}\n"
+                f"Article headline: {title}\n"
+                f"Article summary: {body_truncated}\n\n"
+                f"OTTAWA:\n"
+            )
+
+        result = _call_ollama(prompt)
+        if not result:
+            return None
+
+        canada_text = _strip_prompt_artifacts(result.strip())
+        for prefix in ("ottawa:", "ottawa：", "渥太华:", "渥太华："):
+            if canada_text.lower().startswith(prefix):
+                canada_text = canada_text[len(prefix):].strip()
+                break
+
+        min_len = 10 if lang == "zh" else 20
+        if len(canada_text) < min_len:
+            return None
+        return {"canada": canada_text, "china": "", "lang": lang}
+
+    # Default: both perspectives
     if lang == "zh":
         source_context = "中方媒体" if is_chinese_source else "西方媒体"
         prompt = (

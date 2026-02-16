@@ -139,6 +139,55 @@ def fix_gender_pronouns(text: str) -> str:
     return result
 
 
+# Known name corrections for LLM hallucinations.
+# The 3B model's training data predates leadership changes and sometimes
+# produces outdated names. Keys are lowercase for case-insensitive matching.
+_KNOWN_NAME_CORRECTIONS: dict[str, dict[str, str]] = {
+    # Canadian PM change: Trudeau → Carney (2025)
+    "trudeau": {"en": "Carney", "zh": "卡尼"},
+    "justin trudeau": {"en": "Mark Carney", "zh": "马克·卡尼"},
+    "特鲁多": {"en": "Carney", "zh": "卡尼"},
+    "贾斯廷·特鲁多": {"en": "Mark Carney", "zh": "马克·卡尼"},
+}
+
+
+def fix_name_hallucinations(text: str, lang: str = "en") -> str:
+    """Replace hallucinated names with correct ones.
+
+    The 3B quantized LLM's training data predates some leadership
+    changes, causing it to hallucinate outdated names (e.g. producing
+    "Trudeau" when the current Canadian PM is Carney).
+
+    Args:
+        text: Text to correct.
+        lang: Language of the text ("en" or "zh").
+
+    Returns:
+        Text with corrected names.
+    """
+    import re
+
+    if not text:
+        return text
+
+    result = text
+    # Process longer names first so "Justin Trudeau" matches before "Trudeau"
+    for old_name, replacements in sorted(
+        _KNOWN_NAME_CORRECTIONS.items(), key=lambda x: len(x[0]), reverse=True
+    ):
+        replacement = replacements.get(lang, replacements.get("en", old_name))
+        # Case-insensitive for English, exact for Chinese
+        if any('\u4e00' <= c <= '\u9fff' for c in old_name):
+            # Chinese name — exact substring match
+            result = result.replace(old_name, replacement)
+        else:
+            # English name — word-boundary, case-insensitive
+            pattern = re.compile(r'\b' + re.escape(old_name) + r'\b', re.IGNORECASE)
+            result = pattern.sub(replacement, result)
+
+    return result
+
+
 def _contains_untranslated_english(text: str, threshold: float = 0.15) -> bool:
     """Detect if Chinese text contains significant untranslated English.
 
@@ -279,6 +328,47 @@ def _clean_partial_translation(text: str) -> str:
     return result
 
 
+_TRANSLATION_PREAMBLE_PATTERNS = [
+    # "Here's the translation from X to Y:" variants
+    "[Hh]ere['\u2018\u2019']?s?\\s+(?:is\\s+)?the\\s+translation\\s*(?:from\\s+\\w+(?:\\s+\\w+)?\\s+to\\s+\\w+(?:\\s+\\w+)?\\s*)?[:\\-]\\s*",
+    # "Translation:" or "Translated text:"
+    r"[Tt]ranslat(?:ion|ed(?:\s+text)?)\s*[:\-]\s*",
+    # "The translation is:" or "The translated text is:"
+    r"[Tt]he\s+translat(?:ion|ed\s+text)\s+is\s*[:\-]\s*",
+    # "In English:" or "In Simplified Chinese:"
+    r"[Ii]n\s+(?:English|Simplified\s+Chinese|Chinese)\s*[:\-]\s*",
+]
+
+
+def _strip_translation_preamble(text: str) -> str:
+    """Remove LLM preamble from translation output.
+
+    LLMs sometimes prepend meta-text like "Here's the translation from
+    Simplified Chinese to English:" despite being told to return only the
+    translation. This function strips such preambles.
+
+    Args:
+        text: Translation result that may contain preamble.
+
+    Returns:
+        Cleaned translation text.
+    """
+    import re
+
+    if not text:
+        return text
+
+    result = text.strip()
+    for pattern in _TRANSLATION_PREAMBLE_PATTERNS:
+        result = re.sub(r"^" + pattern, "", result, count=1).strip()
+
+    # Strip surrounding quotes that LLMs sometimes add around translations
+    if len(result) > 2 and result[0] in '""\u201c' and result[-1] in '""\u201d':
+        result = result[1:-1].strip()
+
+    return result
+
+
 _BASE_URL = "https://api.mymemory.translated.net/get"
 
 
@@ -337,6 +427,7 @@ def _translate_one(
         result = llm_translate(text, source_lang, target_lang)
 
     if result:
+        result = _strip_translation_preamble(result)
         if check_english and _contains_untranslated_english(result):
             logger.debug(
                 "LLM has English fragments, retrying strict: %.50s",
@@ -346,8 +437,10 @@ def _translate_one(
                 strict = llm_translate_strict(
                     text, source_lang, target_lang
                 )
-            if strict and not _contains_untranslated_english(strict):
-                return strict, "llm_strict"
+            if strict:
+                strict = _strip_translation_preamble(strict)
+                if not _contains_untranslated_english(strict):
+                    return strict, "llm_strict"
             # Try MyMemory as last resort
             with _MYMEMORY_LOCK:
                 mm = _mymemory_translate_one(text, mymemory_langpair)
@@ -453,24 +546,26 @@ def translate_to_chinese(texts: list[str]) -> list[str]:
     """Translate a list of English texts to Simplified Chinese.
 
     LLM primary, MyMemory fallback. Returns original texts for any that fail.
+    Also applies name hallucination corrections.
     """
-    return _translate_batch(texts, "en", "zh", "en|zh-CN")
+    results = _translate_batch(texts, "en", "zh", "en|zh-CN")
+    return [fix_name_hallucinations(t, "zh") for t in results]
 
 
 def translate_to_english(texts: list[str]) -> list[str]:
     """Translate a list of Chinese texts to English.
 
     LLM primary, MyMemory fallback. Returns original texts for any that fail.
-    Also applies gender pronoun corrections for known figures.
+    Also applies gender pronoun and name hallucination corrections.
     """
     results = _translate_batch(texts, "zh", "en", "zh-CN|en")
-    # Apply pronoun corrections to English output
-    return [fix_gender_pronouns(t) for t in results]
+    # Apply pronoun and name corrections to English output
+    return [fix_name_hallucinations(fix_gender_pronouns(t), "en") for t in results]
 
 
 def fix_english_text(text: str) -> str:
-    """Apply corrections to English text including gender pronouns.
+    """Apply corrections to English text including gender pronouns and name hallucinations.
 
     Use this for English text that wasn't translated (original EN sources).
     """
-    return fix_gender_pronouns(text)
+    return fix_name_hallucinations(fix_gender_pronouns(text), "en")

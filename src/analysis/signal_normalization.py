@@ -39,6 +39,97 @@ _CANADA_NEXUS_KEYWORDS = [
     "加拿大", "渥太华", "特鲁多", "加中", "卡尼", "油菜籽",
 ]
 
+# Tiered keywords for perspective relevance scoring
+_OTTAWA_KEYWORDS: dict[str, list[str]] = {
+    # Direct references (weight 5)
+    "tier1": [
+        "canada", "canadian", "ottawa", "trudeau", "carney", "poilievre",
+        "joly", "champagne", "freeland", "csis", "rcmp", "norad",
+        "canada-china", "canola", "lobster", "potash",
+        "加拿大", "渥太华", "特鲁多", "加中", "卡尼",
+    ],
+    # Bilateral/alliance context (weight 3)
+    "tier2": [
+        "five eyes", "nato", "g7", "g20", "aukus", "indo-pacific",
+        "bilateral", "allied", "western allies", "sanctions",
+        "五眼", "北约", "七国集团",
+    ],
+    # Broad trade/policy (weight 1)
+    "tier3": [
+        "tariff", "export control", "import", "supply chain",
+        "critical minerals", "arctic", "pacific",
+        "关税", "出口管制", "供应链",
+    ],
+}
+
+_BEIJING_KEYWORDS: dict[str, list[str]] = {
+    # Direct China governance/policy (weight 5)
+    "tier1": [
+        "china", "beijing", "xi jinping", "wang yi", "prc",
+        "communist party", "ccp", "state council", "npc",
+        "中国", "北京", "习近平", "王毅", "国务院", "中共",
+    ],
+    # Sovereignty/territorial (weight 4)
+    "tier2": [
+        "taiwan", "hong kong", "tibet", "xinjiang", "south china sea",
+        "one china", "reunification", "sovereignty",
+        "台湾", "香港", "西藏", "新疆", "南海", "统一", "主权",
+    ],
+    # Chinese industry/economy (weight 2)
+    "tier3": [
+        "huawei", "tencent", "alibaba", "baidu", "bytedance",
+        "byd", "catl", "dji", "belt and road", "aiib",
+        "华为", "腾讯", "阿里", "百度", "比亚迪", "一带一路",
+    ],
+}
+
+# Default thresholds for perspective generation gating
+_OTTAWA_THRESHOLD = 3
+_BEIJING_THRESHOLD = 3
+
+
+def score_perspective_relevance(title: str, body: str) -> dict[str, int]:
+    """Score how relevant a signal is to Ottawa and Beijing perspectives.
+
+    Uses tiered keyword matching: tier1 (direct) = highest weight,
+    tier2 (alliance/bilateral) = medium, tier3 (broad) = low.
+    Each tier contributes at most once (first match wins per tier).
+
+    Returns dict with ``ottawa`` and ``beijing`` integer scores.
+    """
+    combined = (title + " " + body).lower()
+    combined = _T2S.convert(combined)
+
+    ottawa_score = 0
+    for kw in _OTTAWA_KEYWORDS["tier1"]:
+        if kw in combined:
+            ottawa_score += 5
+            break
+    for kw in _OTTAWA_KEYWORDS["tier2"]:
+        if kw in combined:
+            ottawa_score += 3
+            break
+    for kw in _OTTAWA_KEYWORDS["tier3"]:
+        if kw in combined:
+            ottawa_score += 1
+            break
+
+    beijing_score = 0
+    for kw in _BEIJING_KEYWORDS["tier1"]:
+        if kw in combined:
+            beijing_score += 5
+            break
+    for kw in _BEIJING_KEYWORDS["tier2"]:
+        if kw in combined:
+            beijing_score += 4
+            break
+    for kw in _BEIJING_KEYWORDS["tier3"]:
+        if kw in combined:
+            beijing_score += 2
+            break
+
+    return {"ottawa": ottawa_score, "beijing": beijing_score}
+
 
 def has_canada_nexus(title: str, body: str) -> bool:
     """Check whether a signal has direct Canada relevance.
@@ -48,6 +139,7 @@ def has_canada_nexus(title: str, body: str) -> bool:
     or a general international-observer perspective.
     """
     combined = (title + " " + body).lower()
+    combined = _T2S.convert(combined)
     return any(kw in combined for kw in _CANADA_NEXUS_KEYWORDS)
 
 
@@ -56,11 +148,13 @@ _IMPACT_TEMPLATES: dict[str, dict[str, str]] = {}
 _WATCH_TEMPLATES: dict[str, dict[str, dict[str, str]]] = {}
 _CANADA_PERSPECTIVE: dict[str, dict[str, str]] = {}
 _CHINA_PERSPECTIVE: dict[str, dict[str, str]] = {}
+_NO_IMPACT_TEMPLATES: dict[str, dict[str, str]] = {}
 
 
 def _load_default_templates() -> None:
     """Load templates from config YAML (lazy init)."""
     global _IMPACT_TEMPLATES, _WATCH_TEMPLATES, _CANADA_PERSPECTIVE, _CHINA_PERSPECTIVE
+    global _NO_IMPACT_TEMPLATES
     if _IMPACT_TEMPLATES:
         return
     try:
@@ -70,6 +164,7 @@ def _load_default_templates() -> None:
         _WATCH_TEMPLATES = templates.watch_templates
         _CANADA_PERSPECTIVE = templates.canada_perspective
         _CHINA_PERSPECTIVE = templates.china_perspective
+        _NO_IMPACT_TEMPLATES = templates.no_impact
     except Exception:
         logger.debug("Could not load templates from config; using empty defaults")
 
@@ -138,24 +233,69 @@ def generate_perspectives(
     lang: str = "en",
     canada_perspective: dict[str, dict[str, str]] | None = None,
     china_perspective: dict[str, dict[str, str]] | None = None,
+    ottawa_threshold: int = _OTTAWA_THRESHOLD,
+    beijing_threshold: int = _BEIJING_THRESHOLD,
 ) -> dict[str, Any]:
     """Generate dual-perspective content for a signal in the source language.
 
-    Tries LLM first (single-language plain text), then quote extraction,
-    then category templates as fallback.  Only populates the *lang* side;
-    the other language is filled later by ``translate_signals_batch``.
+    First scores perspective relevance. If Ottawa or Beijing score is below
+    threshold, uses a no_impact template instead of generating via LLM.
+    Otherwise tries LLM first (single-language plain text), then quote
+    extraction, then category templates as fallback. Only populates the
+    *lang* side; the other language is filled later by
+    ``translate_signals_batch``.
     """
     _load_default_templates()
     ca_persp = canada_perspective if canada_perspective is not None else _CANADA_PERSPECTIVE
     cn_persp = china_perspective if china_perspective is not None else _CHINA_PERSPECTIVE
+    no_impact = _NO_IMPACT_TEMPLATES
 
     primary = (
         {"en": "Chinese media", "zh": "中方媒体"} if is_chinese
         else {"en": "Western media", "zh": "西方媒体"}
     )
 
+    # Score perspective relevance to gate generation
+    scores = score_perspective_relevance(title, body_text)
+    generate_ottawa = scores["ottawa"] >= ottawa_threshold
+    generate_beijing = scores["beijing"] >= beijing_threshold
+    logger.debug(
+        "Perspective scores for '%s': ottawa=%d, beijing=%d (thresholds: %d/%d)",
+        title[:50], scores["ottawa"], scores["beijing"],
+        ottawa_threshold, beijing_threshold,
+    )
+
+    # Build no_impact fallback dicts
+    no_impact_ottawa = no_impact.get("ottawa", {
+        "en": "No significant direct impact on Canadian interests identified. "
+              "This development is worth monitoring for potential downstream effects.",
+        "zh": "目前未发现对加拿大利益的重大直接影响。此事件值得持续关注其潜在的间接效应。",
+    })
+    no_impact_beijing = no_impact.get("beijing", {
+        "en": "No significant implications for Beijing's position identified at this time.",
+        "zh": "目前未发现对北京立场的重大影响。",
+    })
+
+    # Both below threshold — use no_impact templates for both
+    if not generate_ottawa and not generate_beijing:
+        return {
+            "primary_source": primary,
+            "canada": dict(no_impact_ottawa),
+            "china": dict(no_impact_beijing),
+            "ottawa_score": scores["ottawa"],
+            "beijing_score": scores["beijing"],
+        }
+
     # Check Canada relevance to guide perspective generation
     canada_relevant = has_canada_nexus(title, body_text)
+
+    # Determine perspective mode for LLM
+    if generate_ottawa and generate_beijing:
+        perspective_mode = "both"
+    elif generate_beijing:
+        perspective_mode = "beijing_only"
+    else:
+        perspective_mode = "ottawa_only"
 
     # Try LLM-powered perspectives first (single-language output)
     if title and body_text:
@@ -166,25 +306,76 @@ def generate_perspectives(
             is_chinese_source=is_chinese,
             lang=lang,
             has_canada_nexus=canada_relevant,
+            perspective_mode=perspective_mode,
         )
         if llm_result:
-            canada_text = _validate_perspective(llm_result["canada"], body_text, lang)
-            china_text = _validate_perspective(llm_result["china"], body_text, lang)
-            if canada_text and china_text:
-                if lang == "zh":
-                    return {
-                        "primary_source": primary,
-                        "canada": {"en": "", "zh": canada_text},
-                        "china": {"en": "", "zh": china_text},
-                        "llm_generated": True,
-                    }
-                else:
-                    return {
-                        "primary_source": primary,
-                        "canada": {"en": canada_text, "zh": ""},
-                        "china": {"en": china_text, "zh": ""},
-                        "llm_generated": True,
-                    }
+            if perspective_mode == "beijing_only":
+                # Only Beijing via LLM, Ottawa gets no_impact template
+                china_text = _validate_perspective(llm_result["china"], body_text, lang)
+                if china_text:
+                    if lang == "zh":
+                        return {
+                            "primary_source": primary,
+                            "canada": dict(no_impact_ottawa),
+                            "china": {"en": "", "zh": china_text},
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
+                    else:
+                        return {
+                            "primary_source": primary,
+                            "canada": dict(no_impact_ottawa),
+                            "china": {"en": china_text, "zh": ""},
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
+            elif perspective_mode == "ottawa_only":
+                # Only Ottawa via LLM, Beijing gets no_impact template
+                canada_text = _validate_perspective(llm_result["canada"], body_text, lang)
+                if canada_text:
+                    if lang == "zh":
+                        return {
+                            "primary_source": primary,
+                            "canada": {"en": "", "zh": canada_text},
+                            "china": dict(no_impact_beijing),
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
+                    else:
+                        return {
+                            "primary_source": primary,
+                            "canada": {"en": canada_text, "zh": ""},
+                            "china": dict(no_impact_beijing),
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
+            else:
+                # Both perspectives via LLM (normal path)
+                canada_text = _validate_perspective(llm_result["canada"], body_text, lang)
+                china_text = _validate_perspective(llm_result["china"], body_text, lang)
+                if canada_text and china_text:
+                    if lang == "zh":
+                        return {
+                            "primary_source": primary,
+                            "canada": {"en": "", "zh": canada_text},
+                            "china": {"en": "", "zh": china_text},
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
+                    else:
+                        return {
+                            "primary_source": primary,
+                            "canada": {"en": canada_text, "zh": ""},
+                            "china": {"en": china_text, "zh": ""},
+                            "llm_generated": True,
+                            "ottawa_score": scores["ottawa"],
+                            "beijing_score": scores["beijing"],
+                        }
             logger.debug("LLM perspectives failed validation, falling back to template")
 
     # Quote indicators
@@ -204,16 +395,27 @@ def generate_perspectives(
         indicators = zh_quote_indicators if is_chinese else en_quote_indicators
         extracted_quote = extract_quote(body_text, indicators)
 
-    canada_template = ca_persp.get(category, ca_persp.get("diplomatic", {"en": "", "zh": ""}))
-    china_template = cn_persp.get(category, cn_persp.get("diplomatic", {"en": "", "zh": ""}))
+    # Use no_impact template for below-threshold perspective, category template otherwise
+    canada_template = (
+        dict(no_impact_ottawa) if not generate_ottawa
+        else ca_persp.get(category, ca_persp.get("diplomatic", {"en": "", "zh": ""}))
+    )
+    china_template = (
+        dict(no_impact_beijing) if not generate_beijing
+        else cn_persp.get(category, cn_persp.get("diplomatic", {"en": "", "zh": ""}))
+    )
 
-    result: dict[str, Any] = {"primary_source": primary}
+    result: dict[str, Any] = {
+        "primary_source": primary,
+        "ottawa_score": scores["ottawa"],
+        "beijing_score": scores["beijing"],
+    }
 
-    if extracted_quote and is_chinese:
+    if extracted_quote and is_chinese and generate_beijing:
         result["china"] = {"en": "", "zh": extracted_quote}
         result["china_source"] = {"en": source_name, "zh": source_name}
         result["canada"] = canada_template
-    elif extracted_quote and not is_chinese:
+    elif extracted_quote and not is_chinese and generate_ottawa:
         result["canada"] = {"en": extracted_quote, "zh": ""}
         result["canada_source"] = {"en": source_name, "zh": source_name}
         result["china"] = china_template
@@ -297,6 +499,53 @@ def _validate_perspective(text: str, body_text: str, lang: str) -> str | None:
     return text
 
 
+def _validate_summary(summary: str, title: str, body: str, lang: str) -> bool:
+    """Check whether an LLM summary is topically relevant to the source material.
+
+    Computes word/character overlap between the summary and the source
+    (title + body). Requires at least 30% of significant words in the
+    summary to appear in the source. This catches fabricated summaries
+    (e.g. Elon Musk content for an HK tourism article).
+
+    Returns True if the summary is relevant, False otherwise.
+    """
+    if not summary or not (title or body):
+        return True  # nothing to compare against
+
+    source = (title + " " + body).lower()
+    summary_lower = summary.lower()
+
+    if lang == "zh":
+        # For Chinese, compare 2-char bigrams (pseudo-words)
+        source_bigrams = set()
+        for i in range(len(source) - 1):
+            if '\u4e00' <= source[i] <= '\u9fff' and '\u4e00' <= source[i + 1] <= '\u9fff':
+                source_bigrams.add(source[i:i + 2])
+        summary_bigrams = set()
+        for i in range(len(summary_lower) - 1):
+            c1, c2 = summary_lower[i], summary_lower[i + 1]
+            if '\u4e00' <= c1 <= '\u9fff' and '\u4e00' <= c2 <= '\u9fff':
+                summary_bigrams.add(summary_lower[i:i + 2])
+        if len(summary_bigrams) < 3:
+            return True  # too few to judge
+        overlap = len(summary_bigrams & source_bigrams) / len(summary_bigrams)
+    else:
+        # For English, compare significant words (4+ chars)
+        source_words = set(re.findall(r'\b\w{4,}\b', source))
+        summary_words = set(re.findall(r'\b\w{4,}\b', summary_lower))
+        if len(summary_words) < 3:
+            return True  # too few to judge
+        overlap = len(summary_words & source_words) / len(summary_words)
+
+    if overlap < 0.30:
+        logger.debug(
+            "Summary rejected: %.0f%% overlap (need 30%%): %.60s",
+            overlap * 100, summary,
+        )
+        return False
+    return True
+
+
 def has_english_fragments(text: str, threshold: float = 0.15) -> bool:
     """Check if Chinese text contains significant English fragments."""
     if not text:
@@ -359,7 +608,7 @@ def normalize_signal(
         )
         if use_llm:
             llm_result = llm_summarize(raw_body, title_str, lang=gen_lang)
-            if llm_result:
+            if llm_result and _validate_summary(llm_result, title_str, raw_body, gen_lang):
                 s["body"] = llm_result
 
     # --- Build bilingual shells (populate source-language side only) ---
@@ -525,8 +774,19 @@ def translate_signals_batch(
     en_cleaned_count = 0
     zh_fallback_count = 0
 
-    def _clean_bilingual_field(field: dict[str, str]) -> None:
-        """Strip CJK from EN text; fallback ZH to EN if empty."""
+    def _clean_bilingual_field(
+        field: dict[str, str],
+        allow_en_fallback: bool = True,
+    ) -> None:
+        """Strip CJK from EN text; optionally fallback ZH to EN if empty.
+
+        Args:
+            field: Bilingual dict with "en" and "zh" keys.
+            allow_en_fallback: If True, copy EN→ZH when ZH is empty or
+                has no CJK characters. Titles use True (blank title is
+                worse than wrong-language title); body and perspectives
+                use False (blank is better than English in ZH field).
+        """
         nonlocal en_cleaned_count, zh_fallback_count
         en_text = field.get("en", "")
         zh_text = field.get("zh", "")
@@ -539,11 +799,16 @@ def translate_signals_batch(
         if zh_text:
             cjk_count = sum(1 for c in zh_text if '\u4e00' <= c <= '\u9fff')
             if cjk_count == 0:
-                en_fallback = field.get("en", "")
-                if en_fallback:
-                    field["zh"] = en_fallback
-                    zh_fallback_count += 1
-        elif not zh_text and field.get("en"):
+                if allow_en_fallback:
+                    en_fallback = field.get("en", "")
+                    if en_fallback:
+                        field["zh"] = en_fallback
+                        zh_fallback_count += 1
+                else:
+                    # ZH has no Chinese characters and fallback disabled —
+                    # clear it rather than leaving English in a ZH field
+                    field["zh"] = ""
+        elif not zh_text and field.get("en") and allow_en_fallback:
             field["zh"] = field["en"]
             zh_fallback_count += 1
 
@@ -551,13 +816,15 @@ def translate_signals_batch(
         for key in ("title", "body"):
             field = s.get(key)
             if isinstance(field, dict):
-                _clean_bilingual_field(field)
-        # Also clean perspective fields
+                # Titles: allow EN fallback (blank title worse than EN title)
+                # Body: don't allow EN fallback (blank better than wrong language)
+                _clean_bilingual_field(field, allow_en_fallback=(key == "title"))
+        # Perspectives: don't allow EN fallback (blank better than wrong language)
         persp = s.get("perspectives", {})
         for view in ("canada", "china"):
             view_dict = persp.get(view)
             if isinstance(view_dict, dict):
-                _clean_bilingual_field(view_dict)
+                _clean_bilingual_field(view_dict, allow_en_fallback=False)
 
     if en_cleaned_count > 0:
         logger.info("Stripped CJK fragments from %d EN text fields", en_cleaned_count)

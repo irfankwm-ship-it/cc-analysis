@@ -8,6 +8,7 @@ from analysis.llm import (
     _call_ollama,
     _parse_perspectives,
     _strip_prompt_artifacts,
+    _validate_llm_output,
     llm_summarize,
     llm_translate,
 )
@@ -219,6 +220,55 @@ class TestParsePerspectives:
         assert result is not None
         assert "渥太华" in result["canada"]
         assert "中方" in result["china"]
+
+
+class TestValidateLlmOutput:
+    """Tests for garbled LLM output detection (Fix 5)."""
+
+    def test_clean_english_text_valid(self) -> None:
+        text = "Canada imposed new sanctions on Chinese officials in response to human rights concerns."
+        assert _validate_llm_output(text) is True
+
+    def test_clean_chinese_text_valid(self) -> None:
+        text = "加拿大对中国官员实施了新的制裁，以回应人权问题。"
+        assert _validate_llm_output(text) is True
+
+    def test_cjk_latin_fragments_rejected(self) -> None:
+        """Multiple CJK-Latin garbled fragments should be rejected."""
+        text = "陈步adro对经济pol产生了影响adj的政策res发展"
+        assert _validate_llm_output(text) is False
+
+    def test_few_cjk_latin_fragments_ok(self) -> None:
+        """A single CJK-Latin fragment should not trigger rejection."""
+        text = "中国5G技术在全球领先。这是一个重要的发展。"
+        assert _validate_llm_output(text) is True
+
+    def test_isolated_latin_chars_rejected(self) -> None:
+        """Multiple isolated Latin chars between CJK should be rejected."""
+        text = "中国 x 政策 b 发展 c 经济 d 改革"
+        assert _validate_llm_output(text) is False
+
+    def test_short_text_always_valid(self) -> None:
+        """Text under 10 chars should always pass."""
+        assert _validate_llm_output("short") is True
+        assert _validate_llm_output("") is True
+
+    def test_normal_mixed_text_valid(self) -> None:
+        """Normal text with proper English terms in Chinese should pass."""
+        text = "中国与 NATO 的关系日趋紧张，G7 峰会讨论了相关议题。"
+        assert _validate_llm_output(text) is True
+
+    def test_garbled_output_blocked_in_call_ollama(self) -> None:
+        """_call_ollama should return None for garbled output."""
+        garbled = "陈步adro对经济pol产生了影响adj的政策res发展"
+        mock_resp = type("Resp", (), {
+            "status_code": 200,
+            "raise_for_status": lambda self: None,
+            "json": lambda self: {"response": garbled},
+        })()
+        with patch("analysis.llm.requests.post", return_value=mock_resp):
+            result = _call_ollama("test prompt")
+        assert result is None
 
 
 class TestStripPromptArtifacts:
